@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Volume2, Trophy, ArrowRight, Sparkles, Star, Home, ArrowLeft,
   BookOpen, Users, PawPrint, Apple, Palette, Hash, Eye, Ear,
-  HelpCircle, Lightbulb, BookX, Heart, GraduationCap
+  HelpCircle, Lightbulb, BookX, Heart, GraduationCap,
+  Gamepad2, Save, RotateCcw, Play, Pause
 } from 'lucide-react';
 
 // --- 1. 数据准备区 ---
-// (数据保持不变，颜色类名不仅用于样式，也用于确保 Tailwind 不会清理掉它们)
 
 const getColor = (index) => {
   const colors = [
@@ -17,13 +17,23 @@ const getColor = (index) => {
   return colors[index % colors.length];
 };
 
+// 洗牌算法 (Fisher-Yates) - 保证真随机
+const shuffleArray = (array) => {
+  const newArr = [...array];
+  for (let i = newArr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+  }
+  return newArr;
+};
+
 const UNIT_DATA = [
   {
     id: 1,
     title: "Unit 1 身体部位",
     subtitle: "Body Parts",
     themeColor: "bg-rose-100 border-rose-300 text-rose-600",
-    icon: <Users />, // 图标组件这里只传引用，样式在渲染时动态加
+    icon: <Users />,
     words: [
       { word: "name", cn: "名字", emoji: "📛", syllables: ["name"] },
       { word: "nice", cn: "友好的", emoji: "😊", syllables: ["nice"] },
@@ -134,11 +144,12 @@ const UNIT_DATA = [
   },
   {
     id: 5,
-    title: "Unit 5 认识颜色",
-    subtitle: "Colors",
+    title: "Unit 5 颜色与动作",
+    subtitle: "Colors & Actions",
     themeColor: "bg-indigo-100 border-indigo-300 text-indigo-600",
     icon: <Palette />,
     words: [
+      // 原有词汇
       { word: "colour", cn: "颜色", emoji: "🎨", syllables: ["col", "our"] },
       { word: "orange", cn: "橙红色", emoji: "🟧", syllables: ["or", "ange"] },
       { word: "green", cn: "绿色", emoji: "🟩", syllables: ["green"] },
@@ -155,6 +166,18 @@ const UNIT_DATA = [
       { word: "draw", cn: "画", emoji: "🖍️", syllables: ["draw"] },
       { word: "white", cn: "白色", emoji: "⬜", syllables: ["white"] },
       { word: "black", cn: "黑色", emoji: "⬛", syllables: ["black"] },
+      // 新增词汇
+      { word: "quiet", cn: "安静的", emoji: "🤫", syllables: ["qui", "et"] },
+      { word: "queen", cn: "女王", emoji: "👸", syllables: ["queen"] },
+      { word: "ruler", cn: "尺子", emoji: "📏", syllables: ["rul", "er"] },
+      { word: "see", cn: "看见", emoji: "👀", syllables: ["see"] },
+      { word: "bus", cn: "公交车", emoji: "🚌", syllables: ["bus"] },
+      { word: "ted", cn: "泰德", emoji: "🧸", syllables: ["ted"] },
+      { word: "sit", cn: "坐", emoji: "🪑", syllables: ["sit"] },
+      { word: "down", cn: "下", emoji: "⬇️", syllables: ["down"] },
+      { word: "up", cn: "上", emoji: "⬆️", syllables: ["up"] },
+      { word: "stand", cn: "站", emoji: "🧍", syllables: ["stand"] },
+      { word: "run", cn: "跑", emoji: "🏃", syllables: ["run"] },
     ]
   },
   {
@@ -183,19 +206,21 @@ const UNIT_DATA = [
   }
 ];
 
-// --- 2. 错题本管理 ---
+// --- 2. 存储管理 (错题本 + 大乱斗进度) ---
 
-const STORAGE_KEY = 'spellingGame_mistakes_v4';
+const MISTAKE_KEY = 'spellingGame_mistakes_v4';
+const BRAWL_KEY = 'spellingGame_brawl_progress_v1';
 
+// 错题本逻辑
 const getMistakes = () => {
   try {
-    const data = localStorage.getItem(STORAGE_KEY);
+    const data = localStorage.getItem(MISTAKE_KEY);
     return data ? JSON.parse(data) : {};
   } catch (e) { return {}; }
 };
 
 const saveMistakes = (mistakes) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(mistakes));
+  localStorage.setItem(MISTAKE_KEY, JSON.stringify(mistakes));
 };
 
 const addMistake = (wordObj) => {
@@ -227,19 +252,47 @@ const updateMistakeProgress = (wordStr, isCorrect) => {
   }
 };
 
+// 大乱斗进度逻辑
+const getBrawlProgress = () => {
+  try {
+    const data = localStorage.getItem(BRAWL_KEY);
+    return data ? JSON.parse(data) : null;
+  } catch (e) { return null; }
+};
+
+const saveBrawlProgress = (state) => {
+  localStorage.setItem(BRAWL_KEY, JSON.stringify(state));
+};
+
+const clearBrawlProgress = () => {
+  localStorage.removeItem(BRAWL_KEY);
+};
+
 // --- 3. 游戏主组件 ---
 
-function GameScreen({ words, mode, onBack, isMistakeMode = false }) {
+function GameScreen({
+  words,          // 单词列表
+  mode,           // 'visual', 'blind', 'notebook', 'brawl'
+  onBack,
+  isMistakeMode = false,
+  initialIndex = 0,
+  initialScore = 0,
+  preShuffled = false, // 是否已经乱序过了 (大乱斗读取存档时为 true)
+  onProgressUpdate = null // 用于大乱斗模式下通知父组件保存进度
+}) {
+  // 核心逻辑：如果是大乱斗读档(preShuffled)，直接用传入的 words
+  // 否则(普通单元或新大乱斗)，进行一次随机打乱
   const workingWords = useMemo(() => {
-    if (Array.isArray(words)) return words;
-    return Object.values(words).sort(() => Math.random() - 0.5);
-  }, [words]);
+    if (preShuffled) return words;
+    if (Array.isArray(words)) return shuffleArray(words);
+    return shuffleArray(Object.values(words));
+  }, [words, preShuffled]);
 
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [shuffledLetters, setShuffledLetters] = useState([]);
   const [placedLetters, setPlacedLetters] = useState([]);
   const [isCompleted, setIsCompleted] = useState(false);
-  const [score, setScore] = useState(0);
+  const [score, setScore] = useState(initialScore);
   const [showCelebration, setShowCelebration] = useState(false);
   const [shake, setShake] = useState(false);
   const [showHint, setShowHint] = useState(false);
@@ -248,6 +301,17 @@ function GameScreen({ words, mode, onBack, isMistakeMode = false }) {
   const audioPlayedRef = useRef(false);
 
   const currentWordObj = workingWords[currentIndex];
+
+  // 大乱斗：每当进度变化，通知父组件保存
+  useEffect(() => {
+    if (mode === 'brawl' && onProgressUpdate) {
+      onProgressUpdate({
+        words: workingWords, // 保存当前的乱序列表，确保下次进来顺序一致
+        currentIndex,
+        score
+      });
+    }
+  }, [currentIndex, score, mode, workingWords, onProgressUpdate]);
 
   useEffect(() => {
     if (currentWordObj) {
@@ -275,11 +339,17 @@ function GameScreen({ words, mode, onBack, isMistakeMode = false }) {
   const initWord = (wordObj) => {
     const phrase = wordObj.word;
     const lettersOnly = phrase.replace(/\s/g, '').split('');
-    const shuffled = lettersOnly.sort(() => Math.random() - 0.5).map((char, i) => ({
+
+    // 修复：先生成对象，再使用 Fisher-Yates 真随机洗牌
+    // 之前的 .sort(() => Math.random() - 0.5) 在短单词上表现很差
+    const letterObjs = lettersOnly.map((char, i) => ({
       id: `${char}-${i}-${Math.random()}`,
       char: char,
       isUsed: false
     }));
+
+    const shuffled = shuffleArray(letterObjs);
+
     setShuffledLetters(shuffled);
     const initialPlaced = phrase.split('').map((char, i) => {
       if (char === ' ') return { char: ' ', isSpace: true, id: `space-${i}` };
@@ -390,7 +460,13 @@ function GameScreen({ words, mode, onBack, isMistakeMode = false }) {
     if (currentIndex < workingWords.length - 1) {
       setCurrentIndex(c => c + 1);
     } else {
-      alert(`太棒了！本轮挑战完成啦！总分：${score}`);
+      // 游戏结束
+      if (mode === 'brawl') {
+        clearBrawlProgress();
+        alert(`🏆 全明星大乱斗通关！太厉害了！总分：${score}`);
+      } else {
+        alert(`太棒了！本轮挑战完成啦！总分：${score}`);
+      }
       onBack();
     }
   };
@@ -405,21 +481,46 @@ function GameScreen({ words, mode, onBack, isMistakeMode = false }) {
     }
   };
 
-  const shouldShowVisuals = mode === 'visual' || showHint || isCompleted;
+  // 在大乱斗模式，我们强制显示视觉（除非你想做一个更难的盲听乱斗，这里暂定为混合看图模式）
+  // 但为了保留盲听功能，还是根据 mode 判断。如果是 brawl，我们默认为 visual 风格，或者可以加一个 toggle
+  // 为了简单，大乱斗默认为 Visual 模式。
+  const effectiveMode = mode === 'brawl' ? 'visual' : mode;
+  const shouldShowVisuals = effectiveMode === 'visual' || effectiveMode === 'notebook' || showHint || isCompleted;
 
-  if (!currentWordObj) return <div className="text-center p-10">暂时没有内容哦</div>;
+  if (!currentWordObj) return <div className="text-center p-10">加载中...</div>;
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-50">
-      <div className={`p-4 flex justify-between items-center shadow-md relative z-10 ${isMistakeMode ? 'bg-red-500 text-white' : 'bg-indigo-500 text-white'}`}>
+      {/* 顶部栏 */}
+      <div className={`p-4 flex justify-between items-center shadow-md relative z-10 transition-colors duration-500 
+        ${isMistakeMode ? 'bg-red-500 text-white' : (mode === 'brawl' ? 'bg-violet-600 text-white' : 'bg-indigo-500 text-white')}`}>
+
         <div className="flex items-center gap-2">
           <button onClick={onBack} className="flex items-center gap-1 font-bold hover:bg-white/20 px-3 py-1 rounded-full transition">
             <ArrowLeft className="w-5 h-5" /> 返回
           </button>
-          <span className="text-xs font-semibold px-2 py-1 bg-white/20 rounded-lg border border-white/30">
-            {isMistakeMode ? '📕 单词加油站' : (mode === 'blind' ? '🎧 听音挑战' : '👀 看图练习')}
+          <span className="text-xs font-semibold px-2 py-1 bg-white/20 rounded-lg border border-white/30 hidden md:inline-block">
+            {isMistakeMode ? '📕 单词加油站' : (mode === 'brawl' ? '⚔️ 全明星大乱斗' : (mode === 'blind' ? '🎧 听音挑战' : '👀 看图练习'))}
           </span>
         </div>
+
+        {/* 中间进度条 (大乱斗特有) */}
+        {mode === 'brawl' && (
+          <div className="flex-1 mx-4 max-w-xs hidden md:flex flex-col gap-1">
+            <div className="flex justify-between text-xs opacity-90">
+              <span>进度</span>
+              <span>{currentIndex + 1} / {workingWords.length}</span>
+            </div>
+            <div className="h-2 bg-black/20 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-yellow-400 transition-all duration-500"
+                style={{ width: `${((currentIndex + 1) / workingWords.length) * 100}%` }}
+              ></div>
+            </div>
+          </div>
+        )}
+
+        {/* 右侧分数/爱心 */}
         {isMistakeMode ? (
           <div className="flex items-center gap-1 bg-black/20 px-3 py-1 rounded-full">
             {[0, 1, 2].map(i => (
@@ -430,13 +531,15 @@ function GameScreen({ words, mode, onBack, isMistakeMode = false }) {
           <div className="flex items-center space-x-2 bg-white/20 px-4 py-1 rounded-full">
             <Trophy className="w-5 h-5 text-yellow-300 fill-yellow-300" />
             <span className="font-bold text-lg">{score}</span>
+            {mode === 'brawl' && <Save className="w-4 h-4 text-white/50 ml-2" />}
           </div>
         )}
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-4">
+      {/* 游戏区域 */}
+      <div className={`flex-1 flex items-center justify-center p-4 ${mode === 'brawl' ? 'bg-violet-50' : ''}`}>
         <div className={`bg-white max-w-2xl w-full rounded-3xl shadow-xl border-4 overflow-hidden relative min-h-[500px] flex flex-col
-          ${isMistakeMode ? 'border-red-100' : 'border-slate-100'}
+          ${isMistakeMode ? 'border-red-100' : (mode === 'brawl' ? 'border-violet-200' : 'border-slate-100')}
         `}>
           {graduatedAnimation && (
             <div className="absolute inset-0 z-50 bg-white/90 backdrop-blur-sm flex flex-col items-center justify-center animate-fade-in-up">
@@ -501,7 +604,7 @@ function GameScreen({ words, mode, onBack, isMistakeMode = false }) {
               })}
             </div>
 
-            {/* 修复：透题问题解决！只有 isCompleted 为 true 时才显示音节提示 */}
+            {/* 音节提示 */}
             <div className="h-8 mb-6 mt-2 flex items-center justify-center gap-1">
               {isCompleted && currentWordObj.syllables && currentWordObj.syllables.map((syl, i) => (
                 <React.Fragment key={i}>
@@ -529,12 +632,18 @@ function GameScreen({ words, mode, onBack, isMistakeMode = false }) {
                 !graduatedAnimation && (
                   <div className="animate-fade-in-up">
                     <button onClick={nextLevel} className="bg-green-500 hover:bg-green-600 text-white text-xl font-bold py-3 px-10 rounded-full shadow-lg transform transition hover:scale-105 flex items-center gap-2">
-                      下一关 ➡️
+                      {currentIndex < workingWords.length - 1 ? '下一关 ➡️' : '完成挑战! 🏆'}
                     </button>
                   </div>
                 )
               )}
             </div>
+
+            {mode === 'brawl' && !isCompleted && (
+              <div className="mt-6 text-xs text-gray-400 flex items-center gap-1">
+                <Save className="w-3 h-3" /> 进度自动保存中
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -543,7 +652,6 @@ function GameScreen({ words, mode, onBack, isMistakeMode = false }) {
         .animate-shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
         @keyframes fade-in-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in-up { animation: fade-in-up 0.5s ease-out forwards; }
-        .animate-spin-slow { animation: spin 3s linear infinite; }
       `}</style>
     </div>
   );
@@ -585,6 +693,9 @@ export default function App() {
   const [mistakeCount, setMistakeCount] = useState(0);
   const [mistakeData, setMistakeData] = useState({});
 
+  // 大乱斗专用状态
+  const [brawlState, setBrawlState] = useState(null);
+
   useEffect(() => {
     const checkMistakes = () => {
       const db = getMistakes();
@@ -610,13 +721,64 @@ export default function App() {
     setGameMode('notebook');
   };
 
+  // --- 大乱斗逻辑 ---
+  const handleBrawlClick = () => {
+    const saved = getBrawlProgress();
+    if (saved) {
+      // 如果有存档，询问用户
+      if (window.confirm(`发现上次大乱斗进度（第 ${saved.currentIndex + 1} 关），是否继续？\n点击【确定】继续，点击【取消】重新开始`)) {
+        setBrawlState(saved);
+        setGameMode('brawl');
+      } else {
+        startNewBrawl();
+      }
+    } else {
+      startNewBrawl();
+    }
+  };
+
+  const startNewBrawl = () => {
+    // 1. 聚合所有单词
+    const allWords = UNIT_DATA.flatMap(u => u.words);
+    // 2. 这里的打乱会在 GameScreen 内部通过 Memo 处理，或者我们可以预处理
+    // 为了支持存档的“顺序一致性”，我们需要在生成大乱斗时就确定顺序并保存
+    const shuffled = shuffleArray(allWords);
+
+    const newState = {
+      words: shuffled,
+      currentIndex: 0,
+      score: 0
+    };
+
+    // 立即存档初始状态
+    saveBrawlProgress(newState);
+    setBrawlState(newState);
+    setGameMode('brawl');
+  };
+
   const handleBack = () => {
     setSelectedUnit(null);
     setGameMode(null);
+    setBrawlState(null);
   };
 
+  // 渲染分发
   if (gameMode === 'notebook') {
     return <GameScreen words={mistakeData} mode="notebook" isMistakeMode={true} onBack={handleBack} />;
+  }
+
+  if (gameMode === 'brawl' && brawlState) {
+    return (
+      <GameScreen
+        words={brawlState.words}
+        mode="brawl"
+        onBack={handleBack}
+        initialIndex={brawlState.currentIndex}
+        initialScore={brawlState.score}
+        preShuffled={true} // 告诉组件不要再乱序了，使用我们存好的顺序
+        onProgressUpdate={saveBrawlProgress}
+      />
+    );
   }
 
   if (selectedUnit && gameMode) {
@@ -658,6 +820,7 @@ export default function App() {
         </div>
       </header>
 
+      {/* 移动端错题本入口 */}
       <div className="md:hidden mb-6 flex justify-center">
         <button
           onClick={startNotebookMode}
@@ -668,6 +831,37 @@ export default function App() {
           <BookX className="w-5 h-5" />
           复习错题 ({mistakeCount})
         </button>
+      </div>
+
+      {/* 新增：大乱斗入口 (精心设计的排版) */}
+      <div className="max-w-4xl mx-auto mb-8 animate-fade-in-up">
+        <div
+          onClick={handleBrawlClick}
+          className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-3xl p-6 md:p-8 text-white shadow-xl shadow-indigo-200 cursor-pointer transform transition hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden group"
+        >
+          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500/20 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
+
+          <div className="flex items-center justify-between relative z-10">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded uppercase tracking-wider">New</span>
+                <span className="flex items-center gap-1 text-violet-200 text-xs font-medium"><Save className="w-3 h-3" /> 支持自动存档</span>
+              </div>
+              <h2 className="text-2xl md:text-3xl font-extrabold mb-2 flex items-center gap-2">
+                <Gamepad2 className="w-8 h-8 md:w-10 md:h-10 text-yellow-300" />
+                全明星大乱斗
+              </h2>
+              <p className="text-indigo-100 opacity-90 max-w-lg">
+                挑战 Unit 1-6 所有单词！混合乱序排列，考验真实力。
+                太长做不完？别担心，系统会自动保存你的进度。
+              </p>
+            </div>
+            <div className="hidden md:flex items-center justify-center bg-white/20 w-16 h-16 rounded-full group-hover:bg-white/30 transition-colors backdrop-blur-sm">
+              <Play className="w-8 h-8 text-white fill-white" />
+            </div>
+          </div>
+        </div>
       </div>
 
       <main className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -681,13 +875,11 @@ export default function App() {
             `}
           >
             <div className="flex items-start justify-between mb-4">
-              {/* 修复：不再用 replace 生成背景色，直接使用存在的 bg-rose-100 搭配 text-rose-600 */}
               <div className={`
                 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner
                 ${unit.themeColor.split(' ')[0]} 
                 ${unit.themeColor.split(' ')[2]}
               `}>
-                {/* 图标颜色由父级的 text-rose-600 控制 */}
                 {React.cloneElement(unit.icon, { className: "w-7 h-7" })}
               </div>
               <span className="text-xs font-bold bg-white/50 text-gray-600 px-2 py-1 rounded-lg">
@@ -696,7 +888,7 @@ export default function App() {
             </div>
 
             <h3 className="text-xl font-bold text-gray-800 mb-1 group-hover:text-current transition-colors">
-              {unit.title.split(' ')[2]}
+              {unit.title.split(' ')[2] ? unit.title.split(' ')[2] : unit.title.replace(/Unit \d /, '')}
             </h3>
             <p className="text-gray-500 text-sm font-medium mb-4">{unit.subtitle}</p>
 
@@ -714,7 +906,7 @@ export default function App() {
       </main>
 
       <footer className="max-w-4xl mx-auto mt-12 text-center text-sky-300 text-sm">
-        V5.1 - 专为聪明的小朋友设计
+        V6.0 - 专为聪明的小朋友设计
       </footer>
     </div>
   );
