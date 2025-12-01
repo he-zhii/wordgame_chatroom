@@ -3,7 +3,8 @@ import {
   Volume2, Trophy, ArrowRight, Sparkles, Star, Home, ArrowLeft,
   BookOpen, Users, PawPrint, Apple, Palette, Hash, Eye, Ear,
   HelpCircle, Lightbulb, BookX, Heart, GraduationCap,
-  Gamepad2, Save, RotateCcw, Play, Pause
+  Gamepad2, Save, RotateCcw, Play, Pause, Music, Mic, Edit3,
+  Settings, Check, X
 } from 'lucide-react';
 
 // --- 1. 数据准备区 ---
@@ -26,6 +27,43 @@ const shuffleArray = (array) => {
   }
   return newArr;
 };
+
+// 律动小剧场数据 (Chants) - Unit 5 专属
+// 新增 cn (中文翻译) 和 phrase (核心词组拼写任务)
+const CHANT_DATA = [
+  {
+    id: "c1",
+    sentence: "Black, black, sit down.",
+    cn: "黑色，黑色，坐下。",
+    emoji: "⚫🪑",
+    color: "bg-slate-800 text-white",
+    phrase: { word: "sit down", cn: "坐下" }
+  },
+  {
+    id: "c2",
+    sentence: "White, white, turn around.",
+    cn: "白色，白色，转个圈。",
+    emoji: "⚪🔄",
+    color: "bg-slate-100 text-slate-800 border-2 border-slate-200",
+    phrase: { word: "turn around", cn: "转圈" }
+  },
+  {
+    id: "c3",
+    sentence: "Pink and red, touch the ground.",
+    cn: "粉色和红色，摸摸地面。",
+    emoji: "💗🔴👇",
+    color: "bg-pink-100 text-pink-600",
+    phrase: { word: "touch the ground", cn: "摸地面" }
+  },
+  {
+    id: "c4",
+    sentence: "Orange and red, jump up and down.",
+    cn: "橙色和红色，跳上跳下。",
+    emoji: "🟧🔴🦘",
+    color: "bg-orange-100 text-orange-600",
+    phrase: { word: "jump up and down", cn: "跳上跳下" }
+  }
+];
 
 const UNIT_DATA = [
   {
@@ -148,8 +186,8 @@ const UNIT_DATA = [
     subtitle: "Colors & Actions",
     themeColor: "bg-indigo-100 border-indigo-300 text-indigo-600",
     icon: <Palette />,
+    hasChant: true, // 标记该单元有律动模式
     words: [
-      // 原有词汇
       { word: "colour", cn: "颜色", emoji: "🎨", syllables: ["col", "our"] },
       { word: "orange", cn: "橙红色", emoji: "🟧", syllables: ["or", "ange"] },
       { word: "green", cn: "绿色", emoji: "🟩", syllables: ["green"] },
@@ -166,7 +204,6 @@ const UNIT_DATA = [
       { word: "draw", cn: "画", emoji: "🖍️", syllables: ["draw"] },
       { word: "white", cn: "白色", emoji: "⬜", syllables: ["white"] },
       { word: "black", cn: "黑色", emoji: "⬛", syllables: ["black"] },
-      // 新增词汇
       { word: "quiet", cn: "安静的", emoji: "🤫", syllables: ["qui", "et"] },
       { word: "queen", cn: "女王", emoji: "👸", syllables: ["queen"] },
       { word: "ruler", cn: "尺子", emoji: "📏", syllables: ["rul", "er"] },
@@ -206,12 +243,31 @@ const UNIT_DATA = [
   }
 ];
 
-// --- 2. 存储管理 (错题本 + 大乱斗进度) ---
+// --- 2. 存储管理 ---
 
 const MISTAKE_KEY = 'spellingGame_mistakes_v4';
 const BRAWL_KEY = 'spellingGame_brawl_progress_v1';
+const SCORE_KEY = 'spellingGame_totalScore_v1';
+const SETTINGS_KEY = 'spellingGame_settings_v1';
 
-// 错题本逻辑
+const getGlobalScore = () => {
+  try {
+    const score = localStorage.getItem(SCORE_KEY);
+    return score ? parseInt(score, 10) : 0;
+  } catch (e) { return 0; }
+};
+
+const saveGlobalScore = (score) => {
+  localStorage.setItem(SCORE_KEY, score.toString());
+};
+
+const updateGlobalScore = (delta) => {
+  const current = getGlobalScore();
+  const newScore = current + delta;
+  saveGlobalScore(newScore);
+  return newScore;
+};
+
 const getMistakes = () => {
   try {
     const data = localStorage.getItem(MISTAKE_KEY);
@@ -252,7 +308,6 @@ const updateMistakeProgress = (wordStr, isCorrect) => {
   }
 };
 
-// 大乱斗进度逻辑
 const getBrawlProgress = () => {
   try {
     const data = localStorage.getItem(BRAWL_KEY);
@@ -268,20 +323,421 @@ const clearBrawlProgress = () => {
   localStorage.removeItem(BRAWL_KEY);
 };
 
-// --- 3. 游戏主组件 ---
+// 设置管理
+const getSettings = () => {
+  try {
+    const data = localStorage.getItem(SETTINGS_KEY);
+    return data ? JSON.parse(data) : { enableHints: true }; // 默认开启
+  } catch (e) { return { enableHints: true }; }
+};
+
+const saveSettings = (settings) => {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+};
+
+
+// --- 3. [新] 律动小剧场 (Sentence Builder + Phrase Spelling) ---
+
+function SentenceGameScreen({ onBack, settings }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [gamePhase, setGamePhase] = useState('sentence'); 
+  
+  // --- Sentence Builder State ---
+  const [placedWords, setPlacedWords] = useState([]);
+  const [availableWords, setAvailableWords] = useState([]);
+  const [sentenceStructure, setSentenceStructure] = useState([]);
+  const [isSentenceCompleted, setIsSentenceCompleted] = useState(false);
+  
+  // --- Spelling State ---
+  const [spellingShuffledLetters, setSpellingShuffledLetters] = useState([]);
+  const [spellingPlacedLetters, setSpellingPlacedLetters] = useState([]);
+  const [isSpellingCompleted, setIsSpellingCompleted] = useState(false);
+  const [spellingShake, setSpellingShake] = useState(false);
+
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+
+  const currentChant = CHANT_DATA[currentIndex];
+
+  useEffect(() => {
+    initLevel(currentIndex);
+  }, [currentIndex]);
+
+  const initLevel = (idx) => {
+    const chant = CHANT_DATA[idx];
+    setGamePhase('sentence');
+    
+    // 1. 初始化组句逻辑
+    const tokens = chant.sentence.split(/([a-zA-Z]+)/).filter(t => t);
+    const structure = [];
+    const wordsPool = [];
+
+    tokens.forEach((token, i) => {
+      if (/^[a-zA-Z]+$/.test(token)) {
+        structure.push({ type: 'word', id: `slot-${i}`, target: token });
+        wordsPool.push({ id: `word-${i}-${token}`, text: token, isUsed: false });
+      } else {
+        if(token.trim() === '' && token.length > 0) {
+           // space handling
+        } else {
+            structure.push({ type: 'punct', content: token });
+        }
+      }
+    });
+
+    setSentenceStructure(structure);
+    setPlacedWords(new Array(structure.filter(t => t.type === 'word').length).fill(null));
+    setAvailableWords(shuffleArray(wordsPool));
+    setIsSentenceCompleted(false);
+    
+    // 2. 初始化拼写逻辑
+    const phrase = chant.phrase.word;
+    const lettersOnly = phrase.replace(/\s/g, '').split(''); 
+    
+    const letterObjs = lettersOnly.map((char, i) => ({
+      id: `spell-${char}-${i}-${Math.random()}`,
+      char: char,
+      isUsed: false
+    }));
+    
+    setSpellingShuffledLetters(shuffleArray(letterObjs));
+    
+    const initialSpellingPlaced = phrase.split('').map((char, i) => {
+       if (char === ' ') return { char: ' ', isSpace: true, id: `space-${i}` };
+       return null;
+    });
+    setSpellingPlacedLetters(initialSpellingPlaced);
+    setIsSpellingCompleted(false);
+
+    setShowCelebration(false);
+    
+    setTimeout(() => playAudio(chant.sentence), 800);
+  };
+
+  const playAudio = (text) => {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US';
+    u.rate = 0.9;
+    u.pitch = 1.1;
+    u.onstart = () => setIsPlayingAudio(true);
+    u.onend = () => setIsPlayingAudio(false);
+    window.speechSynthesis.speak(u);
+  };
+
+  const playSuccessSound = () => {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(440, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.5);
+  };
+
+  // --- Sentence Builder Logic ---
+
+  const handleSentenceWordClick = (wordObj) => {
+    if (isSentenceCompleted || wordObj.isUsed) return;
+    const emptyIndex = placedWords.findIndex(w => w === null);
+    if (emptyIndex === -1) return;
+
+    const newPlaced = [...placedWords];
+    newPlaced[emptyIndex] = wordObj;
+    setPlacedWords(newPlaced);
+
+    const newAvailable = availableWords.map(w => w.id === wordObj.id ? { ...w, isUsed: true } : w);
+    setAvailableWords(newAvailable);
+
+    if (newPlaced.every(w => w !== null)) {
+      checkSentenceAnswer(newPlaced);
+    }
+  };
+
+  const handleSentenceSlotClick = (slotIndex) => {
+    if (isSentenceCompleted || !placedWords[slotIndex]) return;
+    const wordToReturn = placedWords[slotIndex];
+    const newPlaced = [...placedWords];
+    newPlaced[slotIndex] = null;
+    setPlacedWords(newPlaced);
+    const newAvailable = availableWords.map(w => w.id === wordToReturn.id ? { ...w, isUsed: false } : w);
+    setAvailableWords(newAvailable);
+  };
+
+  const checkSentenceAnswer = (finalPlaced) => {
+    const userWords = finalPlaced.map(w => w.text);
+    const targetWords = sentenceStructure.filter(s => s.type === 'word').map(s => s.target);
+    const isCorrect = userWords.join('') === targetWords.join('');
+
+    if (isCorrect) {
+      setIsSentenceCompleted(true);
+      playSuccessSound();
+      playAudio(currentChant.sentence);
+    } else {
+      alert("Oops! 顺序不对哦，再试一次！");
+      setPlacedWords(new Array(finalPlaced.length).fill(null));
+      setAvailableWords(availableWords.map(w => ({ ...w, isUsed: false })));
+    }
+  };
+
+  // --- Spelling Logic ---
+  
+  const handleSpellingLetterClick = (letterObj) => {
+    if (isSpellingCompleted || letterObj.isUsed) return;
+    const firstEmptyIndex = spellingPlacedLetters.findIndex(l => l === null);
+    if (firstEmptyIndex === -1) return;
+
+    const newShuffled = spellingShuffledLetters.map(l => l.id === letterObj.id ? { ...l, isUsed: true } : l);
+    const newPlaced = [...spellingPlacedLetters];
+    newPlaced[firstEmptyIndex] = letterObj;
+
+    setSpellingShuffledLetters(newShuffled);
+    setSpellingPlacedLetters(newPlaced);
+
+    if (newPlaced.every(l => l !== null)) {
+      checkSpellingAnswer(newPlaced);
+    }
+  };
+
+  const handleSpellingSlotClick = (index) => {
+    if (isSpellingCompleted || !spellingPlacedLetters[index] || spellingPlacedLetters[index].isSpace) return;
+    const letterToReturn = spellingPlacedLetters[index];
+    const newPlaced = [...spellingPlacedLetters];
+    newPlaced[index] = null;
+    const newShuffled = spellingShuffledLetters.map(l => l.id === letterToReturn.id ? { ...l, isUsed: false } : l);
+    setSpellingPlacedLetters(newPlaced);
+    setSpellingShuffledLetters(newShuffled);
+  };
+
+  const checkSpellingAnswer = (finalPlaced) => {
+    const userPhrase = finalPlaced.map(l => l.char).join('');
+    if (userPhrase === currentChant.phrase.word) {
+        setIsSpellingCompleted(true);
+        setShowCelebration(true);
+        playSuccessSound();
+        updateGlobalScore(30); 
+        playAudio(currentChant.phrase.word);
+    } else {
+        setSpellingShake(true);
+        setTimeout(() => setSpellingShake(false), 500);
+        const userChars = finalPlaced.filter(l => l && !l.isSpace).map(l => l.id);
+        const resetPlaced = finalPlaced.map(l => (l && l.isSpace) ? l : null);
+        const resetShuffled = spellingShuffledLetters.map(l => userChars.includes(l.id) ? { ...l, isUsed: false } : l);
+        
+        setSpellingPlacedLetters(resetPlaced);
+        setSpellingShuffledLetters(resetShuffled);
+    }
+  };
+
+  // 提示功能
+  const handleSpellingHint = () => {
+    if (isSpellingCompleted) return;
+    const emptyIndex = spellingPlacedLetters.findIndex(l => l === null);
+    if (emptyIndex === -1) return;
+    const correctChar = currentChant.phrase.word[emptyIndex];
+    const letterToAutoFill = spellingShuffledLetters.find(l => l.char === correctChar && !l.isUsed);
+    if (letterToAutoFill) {
+      handleSpellingLetterClick(letterToAutoFill);
+    } else {
+        console.warn("Hint: No matching letter found in pool.");
+    }
+  };
+
+  // --- Navigation ---
+  
+  const startSpellingPhase = () => {
+    setGamePhase('spelling');
+    playAudio(currentChant.phrase.word);
+  };
+
+  const nextLevel = () => {
+    if (currentIndex < CHANT_DATA.length - 1) {
+      setCurrentIndex(c => c + 1);
+    } else {
+      alert("🎉 太棒了！你已经完成了所有律动挑战！");
+      onBack();
+    }
+  };
+
+  // Render Helpers
+  let wordSlotCounter = 0;
+
+  return (
+    <div className={`flex flex-col min-h-[100dvh] w-full overflow-x-hidden overscroll-none select-none ${currentChant.color} transition-colors duration-500`}>
+      <div className="p-4 flex justify-between items-center bg-black/10 text-white backdrop-blur-md sticky top-0 z-20">
+        <button onClick={onBack} className="flex items-center gap-1 font-bold hover:bg-white/20 px-3 py-1 rounded-full active:scale-95 transition-transform">
+          <ArrowLeft className="w-5 h-5" /> <span className="hidden md:inline">退出剧场</span>
+        </button>
+        <span className="font-bold tracking-wider flex items-center gap-2 text-sm md:text-base">
+            <Music className="w-5 h-5 animate-bounce" /> 律动小剧场 ({currentIndex + 1}/{CHANT_DATA.length})
+        </span>
+      </div>
+
+      <div className="flex-1 flex flex-col items-center justify-center p-4 pb-20">
+        <div className="w-full max-w-3xl bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-4 md:p-8 min-h-[400px] flex flex-col items-center justify-center relative overflow-hidden transition-all">
+          
+          {/* Phase 1: Sentence Builder */}
+          {gamePhase === 'sentence' && (
+            <div className="w-full flex flex-col items-center animate-fade-in-up">
+               <div className="mb-6 md:mb-10 text-center">
+                   <h2 className="text-2xl md:text-4xl font-extrabold text-slate-700 tracking-wide mb-2">
+                       {currentChant.cn}
+                   </h2>
+                   <p className="text-slate-400 text-xs md:text-sm">请将下方的单词归位</p>
+               </div>
+               
+               <div className="flex flex-wrap items-end justify-center gap-2 mb-8 md:mb-12 min-h-[60px] md:min-h-[80px]">
+                 {sentenceStructure.map((item, idx) => {
+                   if (item.type === 'punct') {
+                     return <span key={idx} className="text-3xl md:text-4xl font-bold text-slate-400 mb-2">{item.content}</span>;
+                   }
+                   const currentSlotIndex = wordSlotCounter++;
+                   const filledWord = placedWords[currentSlotIndex];
+                   return (
+                     <div 
+                        key={idx}
+                        onClick={() => handleSentenceSlotClick(currentSlotIndex)}
+                        className={`
+                           min-w-[60px] md:min-w-[80px] h-10 md:h-14 px-2 md:px-4 flex items-center justify-center rounded-xl border-b-4 text-lg md:text-2xl font-bold cursor-pointer transition-all active:scale-95
+                           ${filledWord 
+                             ? (isSentenceCompleted ? 'bg-green-100 border-green-400 text-green-600 scale-110' : 'bg-white border-indigo-200 text-indigo-600 shadow-lg') 
+                             : 'bg-slate-100 border-slate-200 border-dashed text-slate-300'
+                           }
+                        `}
+                     >
+                        {filledWord ? filledWord.text : ''}
+                     </div>
+                   );
+                 })}
+               </div>
+
+               <div className="flex flex-wrap justify-center gap-2 md:gap-3">
+                 {!isSentenceCompleted ? (
+                    availableWords.map((word) => (
+                        <button
+                            key={word.id}
+                            onClick={() => handleSentenceWordClick(word)}
+                            disabled={word.isUsed}
+                            className={`
+                               px-4 md:px-6 py-2 md:py-3 rounded-2xl text-lg md:text-xl font-bold border-b-4 transition-all transform touch-manipulation
+                               ${word.isUsed 
+                                 ? 'opacity-0 scale-50' 
+                                 : 'bg-white border-slate-200 text-slate-700 hover:-translate-y-1 hover:shadow-lg active:scale-95'
+                               }
+                            `}
+                        >
+                            {word.text}
+                        </button>
+                    ))
+                 ) : (
+                    <div className="flex flex-col items-center animate-bounce">
+                        <p className="text-green-600 font-bold mb-2 text-sm md:text-base">句子组装完成！下一步 ⬇️</p>
+                        <button onClick={startSpellingPhase} className="bg-indigo-500 hover:bg-indigo-600 text-white text-lg md:text-xl font-bold py-3 px-8 md:px-12 rounded-full shadow-lg flex items-center gap-2 active:scale-95">
+                             <Edit3 className="w-5 h-5 md:w-6 md:h-6" /> 拼写核心词组
+                        </button>
+                    </div>
+                 )}
+               </div>
+            </div>
+          )}
+
+          {/* Phase 2: Phrase Spelling */}
+          {gamePhase === 'spelling' && (
+             <div className="w-full flex flex-col items-center animate-fade-in-up">
+                <div className="mb-6 md:mb-8 text-center">
+                    <span className="bg-indigo-100 text-indigo-600 text-xs font-bold px-3 py-1 rounded-full mb-2 inline-block">核心词组挑战</span>
+                    <h2 className="text-2xl md:text-3xl font-extrabold text-slate-800 mb-1">{currentChant.phrase.cn}</h2>
+                    <button onClick={() => playAudio(currentChant.phrase.word)} className="mx-auto flex items-center gap-1 text-indigo-400 text-sm hover:text-indigo-600 active:scale-95 p-2">
+                        <Volume2 className="w-4 h-4" /> 听发音
+                    </button>
+                </div>
+
+                <div className={`flex flex-wrap justify-center gap-2 mb-8 md:mb-10 min-h-[3rem] md:min-h-[4rem] ${spellingShake ? 'animate-shake' : ''}`}>
+                   {spellingPlacedLetters.map((letter, idx) => {
+                     if (letter && letter.isSpace) return <div key={`space-${idx}`} className="w-2 md:w-6 h-10 md:h-12 flex-shrink-0"></div>;
+                     return (
+                       <div
+                         key={idx} onClick={() => handleSpellingSlotClick(idx)}
+                         className={`w-10 h-12 md:w-14 md:h-16 flex items-center justify-center text-2xl md:text-3xl font-bold rounded-xl border-b-4 transition-all cursor-pointer select-none active:scale-95
+                           ${letter ? `bg-white border-blue-200 shadow-md text-blue-600` : 'bg-slate-100 border-slate-200'}
+                           ${isSpellingCompleted && letter ? 'bg-green-100 border-green-400 text-green-600' : ''}
+                         `}
+                       >
+                         {letter ? letter.char : ''}
+                       </div>
+                     );
+                   })}
+                </div>
+
+                <div className="flex flex-wrap justify-center items-center gap-4 md:gap-6">
+                   <div className="flex flex-wrap justify-center gap-2 md:gap-3">
+                       {!isSpellingCompleted ? (
+                           spellingShuffledLetters.map((item) => (
+                            <button
+                              key={item.id} onClick={() => handleSpellingLetterClick(item)} disabled={item.isUsed}
+                              className={`w-10 h-10 md:w-12 md:h-12 flex items-center justify-center text-xl md:text-2xl font-bold rounded-xl transition-all transform duration-200 touch-manipulation
+                                ${item.isUsed ? 'opacity-0 scale-50 cursor-default' : 'bg-yellow-400 hover:bg-yellow-300 text-yellow-900 shadow-[0_4px_0_rgb(161,98,7)] active:scale-90'}
+                              `}
+                            >
+                              {item.char}
+                            </button>
+                           ))
+                       ) : (
+                           <button onClick={nextLevel} className="bg-green-500 hover:bg-green-600 text-white text-lg md:text-xl font-bold py-3 px-8 md:px-12 rounded-full shadow-lg animate-bounce flex items-center gap-2 active:scale-95">
+                               {currentIndex < CHANT_DATA.length - 1 ? '下一句 ➡️' : '全部通关! 🏆'}
+                           </button>
+                       )}
+                   </div>
+                   
+                   {!isSpellingCompleted && settings?.enableHints && (
+                      <button 
+                          onClick={handleSpellingHint}
+                          className="w-10 h-10 md:w-14 md:h-14 bg-white border-4 border-amber-200 rounded-2xl flex items-center justify-center shadow-sm hover:shadow-md hover:scale-105 active:scale-95 transition-all group touch-manipulation"
+                          title="提示"
+                      >
+                          <Lightbulb className="w-6 h-6 md:w-8 md:h-8 text-amber-400 fill-amber-400 group-hover:animate-pulse" />
+                      </button>
+                   )}
+                </div>
+
+                {showCelebration && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-20">
+                        <span className="text-9xl animate-ping">🌟</span>
+                    </div>
+                )}
+             </div>
+          )}
+
+        </div>
+      </div>
+      <style>{`
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        .animate-shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes fade-in-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in-up { animation: fade-in-up 0.5s ease-out forwards; }
+      `}</style>
+    </div>
+  );
+}
+
+// --- 4. 单词拼写游戏主组件 (GameScreen) ---
 
 function GameScreen({
-  words,          // 单词列表
-  mode,           // 'visual', 'blind', 'notebook', 'brawl'
+  words,          
+  mode,           
   onBack,
   isMistakeMode = false,
   initialIndex = 0,
   initialScore = 0,
-  preShuffled = false, // 是否已经乱序过了 (大乱斗读取存档时为 true)
-  onProgressUpdate = null // 用于大乱斗模式下通知父组件保存进度
+  preShuffled = false, 
+  onProgressUpdate = null,
+  settings 
 }) {
-  // 核心逻辑：如果是大乱斗读档(preShuffled)，直接用传入的 words
-  // 否则(普通单元或新大乱斗)，进行一次随机打乱
   const workingWords = useMemo(() => {
     if (preShuffled) return words;
     if (Array.isArray(words)) return shuffleArray(words);
@@ -302,11 +758,10 @@ function GameScreen({
 
   const currentWordObj = workingWords[currentIndex];
 
-  // 大乱斗：每当进度变化，通知父组件保存
   useEffect(() => {
     if (mode === 'brawl' && onProgressUpdate) {
       onProgressUpdate({
-        words: workingWords, // 保存当前的乱序列表，确保下次进来顺序一致
+        words: workingWords, 
         currentIndex,
         score
       });
@@ -339,15 +794,11 @@ function GameScreen({
   const initWord = (wordObj) => {
     const phrase = wordObj.word;
     const lettersOnly = phrase.replace(/\s/g, '').split('');
-
-    // 修复：先生成对象，再使用 Fisher-Yates 真随机洗牌
-    // 之前的 .sort(() => Math.random() - 0.5) 在短单词上表现很差
     const letterObjs = lettersOnly.map((char, i) => ({
       id: `${char}-${i}-${Math.random()}`,
       char: char,
       isUsed: false
     }));
-
     const shuffled = shuffleArray(letterObjs);
 
     setShuffledLetters(shuffled);
@@ -412,6 +863,19 @@ function GameScreen({
       checkAnswer(newPlaced);
     }
   };
+  
+  const handleSmartHint = () => {
+    if (isCompleted) return;
+    const emptyIndex = placedLetters.findIndex(l => l === null);
+    if (emptyIndex === -1) return;
+    const correctChar = currentWordObj.word[emptyIndex];
+    const letterToAutoFill = shuffledLetters.find(l => l.char === correctChar && !l.isUsed);
+    if (letterToAutoFill) {
+      handleLetterClick(letterToAutoFill);
+    } else {
+        console.warn("Hint: No matching letter found in pool.");
+    }
+  };
 
   const handleSlotClick = (index) => {
     if (isCompleted || !placedLetters[index] || placedLetters[index].isSpace) return;
@@ -438,11 +902,13 @@ function GameScreen({
           setCurrentHearts(h => h + 1);
           setShowCelebration(true);
           setScore(s => s + 10);
+          updateGlobalScore(10);
         }
       } else {
         setShowCelebration(true);
         setScore(s => s + 10);
         setShowHint(true);
+        updateGlobalScore(10);
       }
     } else {
       setShake(true);
@@ -460,7 +926,6 @@ function GameScreen({
     if (currentIndex < workingWords.length - 1) {
       setCurrentIndex(c => c + 1);
     } else {
-      // 游戏结束
       if (mode === 'brawl') {
         clearBrawlProgress();
         alert(`🏆 全明星大乱斗通关！太厉害了！总分：${score}`);
@@ -481,22 +946,18 @@ function GameScreen({
     }
   };
 
-  // 在大乱斗模式，我们强制显示视觉（除非你想做一个更难的盲听乱斗，这里暂定为混合看图模式）
-  // 但为了保留盲听功能，还是根据 mode 判断。如果是 brawl，我们默认为 visual 风格，或者可以加一个 toggle
-  // 为了简单，大乱斗默认为 Visual 模式。
   const effectiveMode = mode === 'brawl' ? 'visual' : mode;
   const shouldShowVisuals = effectiveMode === 'visual' || effectiveMode === 'notebook' || showHint || isCompleted;
 
   if (!currentWordObj) return <div className="text-center p-10">加载中...</div>;
 
   return (
-    <div className="flex flex-col min-h-screen bg-slate-50">
-      {/* 顶部栏 */}
+    <div className="flex flex-col min-h-[100dvh] w-full overflow-x-hidden overscroll-none select-none bg-slate-50">
       <div className={`p-4 flex justify-between items-center shadow-md relative z-10 transition-colors duration-500 
         ${isMistakeMode ? 'bg-red-500 text-white' : (mode === 'brawl' ? 'bg-violet-600 text-white' : 'bg-indigo-500 text-white')}`}>
-
+        
         <div className="flex items-center gap-2">
-          <button onClick={onBack} className="flex items-center gap-1 font-bold hover:bg-white/20 px-3 py-1 rounded-full transition">
+          <button onClick={onBack} className="flex items-center gap-1 font-bold hover:bg-white/20 px-3 py-1 rounded-full transition active:scale-95">
             <ArrowLeft className="w-5 h-5" /> 返回
           </button>
           <span className="text-xs font-semibold px-2 py-1 bg-white/20 rounded-lg border border-white/30 hidden md:inline-block">
@@ -504,23 +965,21 @@ function GameScreen({
           </span>
         </div>
 
-        {/* 中间进度条 (大乱斗特有) */}
         {mode === 'brawl' && (
-          <div className="flex-1 mx-4 max-w-xs hidden md:flex flex-col gap-1">
-            <div className="flex justify-between text-xs opacity-90">
-              <span>进度</span>
-              <span>{currentIndex + 1} / {workingWords.length}</span>
-            </div>
-            <div className="h-2 bg-black/20 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-yellow-400 transition-all duration-500"
-                style={{ width: `${((currentIndex + 1) / workingWords.length) * 100}%` }}
-              ></div>
-            </div>
-          </div>
+           <div className="flex-1 mx-4 max-w-xs hidden md:flex flex-col gap-1">
+             <div className="flex justify-between text-xs opacity-90">
+               <span>进度</span>
+               <span>{currentIndex + 1} / {workingWords.length}</span>
+             </div>
+             <div className="h-2 bg-black/20 rounded-full overflow-hidden">
+               <div 
+                 className="h-full bg-yellow-400 transition-all duration-500"
+                 style={{ width: `${((currentIndex + 1) / workingWords.length) * 100}%` }}
+               ></div>
+             </div>
+           </div>
         )}
 
-        {/* 右侧分数/爱心 */}
         {isMistakeMode ? (
           <div className="flex items-center gap-1 bg-black/20 px-3 py-1 rounded-full">
             {[0, 1, 2].map(i => (
@@ -536,9 +995,8 @@ function GameScreen({
         )}
       </div>
 
-      {/* 游戏区域 */}
-      <div className={`flex-1 flex items-center justify-center p-4 ${mode === 'brawl' ? 'bg-violet-50' : ''}`}>
-        <div className={`bg-white max-w-2xl w-full rounded-3xl shadow-xl border-4 overflow-hidden relative min-h-[500px] flex flex-col
+      <div className={`flex-1 flex items-center justify-center p-4 pb-20 ${mode === 'brawl' ? 'bg-violet-50' : ''}`}>
+        <div className={`bg-white max-w-2xl w-full rounded-3xl shadow-xl border-4 overflow-hidden relative min-h-[400px] flex flex-col
           ${isMistakeMode ? 'border-red-100' : (mode === 'brawl' ? 'border-violet-200' : 'border-slate-100')}
         `}>
           {graduatedAnimation && (
@@ -546,55 +1004,55 @@ function GameScreen({
               <GraduationCap className="w-24 h-24 text-yellow-500 mb-4 animate-bounce" />
               <h2 className="text-3xl font-bold text-gray-800 mb-2">太棒了！彻底掌握！</h2>
               <p className="text-gray-500 mb-6">这个词已经从错题本移除咯~</p>
-              <button onClick={nextLevel} className="bg-green-500 text-white px-8 py-3 rounded-full font-bold shadow-lg hover:bg-green-600 transition">
+              <button onClick={nextLevel} className="bg-green-500 text-white px-8 py-3 rounded-full font-bold shadow-lg hover:bg-green-600 transition active:scale-95">
                 下一关
               </button>
             </div>
           )}
 
-          <div className="p-6 md:p-10 flex flex-col items-center flex-1">
-            <div className="relative mb-6 text-center h-40 flex flex-col justify-center items-center w-full">
+          <div className="p-4 md:p-10 flex flex-col items-center flex-1">
+            <div className="relative mb-6 text-center h-32 md:h-40 flex flex-col justify-center items-center w-full">
               {shouldShowVisuals ? (
                 <div className="transition-all duration-500 animate-fade-in-up">
-                  <div className={`text-8xl mb-4 transition-transform duration-300 ${isCompleted ? 'scale-110 rotate-6' : ''}`}>
+                  <div className={`text-6xl md:text-8xl mb-2 md:mb-4 transition-transform duration-300 ${isCompleted ? 'scale-110 rotate-6' : ''}`}>
                     {currentWordObj.emoji}
                   </div>
-                  <h2 className={`text-2xl md:text-3xl font-bold tracking-widest ${getColor(currentIndex)}`}>
+                  <h2 className={`text-xl md:text-3xl font-bold tracking-widest ${getColor(currentIndex)}`}>
                     {currentWordObj.cn}
                   </h2>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center animate-pulse group">
                   <div
-                    className="w-32 h-32 bg-indigo-100 rounded-3xl flex items-center justify-center border-4 border-indigo-200 mb-2 cursor-pointer hover:bg-indigo-200 transition-colors shadow-inner"
+                    className="w-24 h-24 md:w-32 md:h-32 bg-indigo-100 rounded-3xl flex items-center justify-center border-4 border-indigo-200 mb-2 cursor-pointer hover:bg-indigo-200 transition-colors shadow-inner active:scale-95"
                     onClick={handleHint}
                   >
-                    <HelpCircle className="w-16 h-16 text-indigo-400 group-hover:scale-110 transition-transform" />
+                    <HelpCircle className="w-12 h-12 md:w-16 md:h-16 text-indigo-400 group-hover:scale-110 transition-transform" />
                   </div>
-                  <p className="text-sm text-indigo-400 font-medium">听不出来？点我看看</p>
+                  <p className="text-xs md:text-sm text-indigo-400 font-medium">听不出来？点我看看</p>
                 </div>
               )}
             </div>
 
-            <div className="flex items-center gap-4 mb-8">
-              <button onClick={playAudio} className="flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-5 py-2 rounded-full transition-colors font-bold shadow-sm">
-                <Volume2 className="w-5 h-5" /> 听听看
+            <div className="flex items-center gap-4 mb-6 md:mb-8">
+              <button onClick={playAudio} className="flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-4 md:px-5 py-2 rounded-full transition-all font-bold shadow-sm active:scale-95 text-sm md:text-base">
+                <Volume2 className="w-4 h-4 md:w-5 md:h-5" /> 听听看
               </button>
               {!shouldShowVisuals && (
-                <button onClick={handleHint} className="flex items-center gap-2 bg-amber-50 hover:bg-amber-100 text-amber-600 px-4 py-2 rounded-full transition-colors font-bold shadow-sm">
-                  <Lightbulb className="w-5 h-5" /> 偷看一眼
+                <button onClick={handleHint} className="flex items-center gap-2 bg-amber-50 hover:bg-amber-100 text-amber-600 px-3 md:px-4 py-2 rounded-full transition-all font-bold shadow-sm active:scale-95 text-sm md:text-base">
+                  <Lightbulb className="w-4 h-4 md:w-5 md:h-5" /> 偷看一眼
                 </button>
               )}
             </div>
 
-            <div className={`flex flex-wrap justify-center gap-2 px-2 min-h-[4rem] ${shake ? 'animate-shake' : ''}`}>
+            <div className={`flex flex-wrap justify-center gap-2 px-2 min-h-[3rem] md:min-h-[4rem] ${shake ? 'animate-shake' : ''}`}>
               {placedLetters.map((letter, idx) => {
-                if (letter && letter.isSpace) return <div key={`space-${idx}`} className="w-4 md:w-6 h-12 flex-shrink-0"></div>;
+                if (letter && letter.isSpace) return <div key={`space-${idx}`} className="w-2 md:w-6 h-10 md:h-12 flex-shrink-0"></div>;
                 return (
                   <div
                     key={idx} onClick={() => handleSlotClick(idx)}
-                    className={`w-12 h-14 md:w-14 md:h-16 flex items-center justify-center text-3xl font-bold rounded-xl border-b-4 transition-all cursor-pointer select-none
-                      ${letter ? `bg-white border-blue-200 shadow-md text-blue-600 active:scale-95` : 'bg-slate-100 border-slate-200'}
+                    className={`w-10 h-12 md:w-14 md:h-16 flex items-center justify-center text-2xl md:text-3xl font-bold rounded-xl border-b-4 transition-all cursor-pointer select-none active:scale-95
+                      ${letter ? `bg-white border-blue-200 shadow-md text-blue-600` : 'bg-slate-100 border-slate-200'}
                       ${isCompleted && letter ? 'bg-green-100 border-green-400 text-green-600' : ''}
                     `}
                   >
@@ -604,8 +1062,7 @@ function GameScreen({
               })}
             </div>
 
-            {/* 音节提示 */}
-            <div className="h-8 mb-6 mt-2 flex items-center justify-center gap-1">
+            <div className="h-6 md:h-8 mb-4 md:mb-6 mt-2 flex items-center justify-center gap-1">
               {isCompleted && currentWordObj.syllables && currentWordObj.syllables.map((syl, i) => (
                 <React.Fragment key={i}>
                   <span className="text-sm md:text-base font-medium text-green-500 animate-fade-in-up">
@@ -616,33 +1073,45 @@ function GameScreen({
               ))}
             </div>
 
-            <div className="flex flex-wrap justify-center gap-3 min-h-[4.5rem]">
-              {!isCompleted ? (
-                shuffledLetters.map((item) => (
-                  <button
-                    key={item.id} onClick={() => handleLetterClick(item)} disabled={item.isUsed}
-                    className={`w-12 h-12 md:w-14 md:h-14 flex items-center justify-center text-2xl font-bold rounded-xl transition-all transform duration-200
-                      ${item.isUsed ? 'opacity-0 scale-50 cursor-default' : 'bg-yellow-400 hover:bg-yellow-300 text-yellow-900 shadow-[0_4px_0_rgb(161,98,7)] active:translate-y-1'}
-                    `}
-                  >
-                    {item.char}
-                  </button>
-                ))
-              ) : (
-                !graduatedAnimation && (
-                  <div className="animate-fade-in-up">
-                    <button onClick={nextLevel} className="bg-green-500 hover:bg-green-600 text-white text-xl font-bold py-3 px-10 rounded-full shadow-lg transform transition hover:scale-105 flex items-center gap-2">
-                      {currentIndex < workingWords.length - 1 ? '下一关 ➡️' : '完成挑战! 🏆'}
+            <div className="flex flex-wrap justify-center items-center gap-4 md:gap-6 min-h-[4.5rem]">
+              <div className="flex flex-wrap justify-center gap-2 md:gap-3">
+                {!isCompleted ? (
+                  shuffledLetters.map((item) => (
+                    <button
+                      key={item.id} onClick={() => handleLetterClick(item)} disabled={item.isUsed}
+                      className={`w-10 h-10 md:w-14 md:h-14 flex items-center justify-center text-xl md:text-2xl font-bold rounded-xl transition-all transform duration-200 touch-manipulation
+                        ${item.isUsed ? 'opacity-0 scale-50 cursor-default' : 'bg-yellow-400 hover:bg-yellow-300 text-yellow-900 shadow-[0_4px_0_rgb(161,98,7)] active:translate-y-1 active:scale-90'}
+                      `}
+                    >
+                      {item.char}
                     </button>
-                  </div>
-                )
-              )}
-            </div>
-
-            {mode === 'brawl' && !isCompleted && (
-              <div className="mt-6 text-xs text-gray-400 flex items-center gap-1">
-                <Save className="w-3 h-3" /> 进度自动保存中
+                  ))
+                ) : (
+                  !graduatedAnimation && (
+                    <div className="animate-fade-in-up">
+                      <button onClick={nextLevel} className="bg-green-500 hover:bg-green-600 text-white text-lg md:text-xl font-bold py-3 px-8 md:px-10 rounded-full shadow-lg transform transition hover:scale-105 flex items-center gap-2 active:scale-95">
+                        {currentIndex < workingWords.length - 1 ? '下一关 ➡️' : '完成挑战! 🏆'}
+                      </button>
+                    </div>
+                  )
+                )}
               </div>
+
+               {!isCompleted && settings?.enableHints && (
+                  <button 
+                      onClick={handleSmartHint}
+                      className="w-10 h-10 md:w-14 md:h-14 bg-white border-4 border-amber-200 rounded-2xl flex items-center justify-center shadow-sm hover:shadow-md hover:scale-105 active:scale-95 transition-all group touch-manipulation"
+                      title="提示"
+                  >
+                      <Lightbulb className="w-6 h-6 md:w-8 md:h-8 text-amber-400 fill-amber-400 group-hover:animate-pulse" />
+                  </button>
+               )}
+            </div>
+            
+            {mode === 'brawl' && !isCompleted && (
+                <div className="mt-4 md:mt-6 text-xs text-gray-400 flex items-center gap-1">
+                    <Save className="w-3 h-3" /> 进度自动保存中
+                </div>
             )}
           </div>
         </div>
@@ -657,43 +1126,102 @@ function GameScreen({
   );
 }
 
-// --- 4. 模式选择弹窗 ---
+// --- 5. 模式选择弹窗 ---
 
 function ModeSelectionModal({ unit, onSelectMode, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in-up">
       <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl relative overflow-hidden">
         <div className={`absolute top-0 left-0 w-full h-24 bg-gradient-to-br ${unit.themeColor.split(' ')[0].replace('bg-', 'from-').replace('100', '200')} to-white opacity-50`}></div>
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><ArrowLeft className="w-6 h-6" /></button>
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 active:scale-95"><ArrowLeft className="w-6 h-6" /></button>
         <div className="relative text-center mb-8 mt-4">
           <h2 className="text-2xl font-bold text-gray-800 mb-2">选择挑战模式</h2>
           <p className="text-gray-500 text-sm">当前单元: {unit.subtitle}</p>
         </div>
         <div className="space-y-4">
-          <button onClick={() => onSelectMode('visual')} className="w-full bg-white border-2 border-indigo-100 hover:border-indigo-400 hover:bg-indigo-50 p-4 rounded-2xl flex items-center gap-4 transition-all group shadow-sm hover:shadow-md">
+          <button onClick={() => onSelectMode('visual')} className="w-full bg-white border-2 border-indigo-100 hover:border-indigo-400 hover:bg-indigo-50 p-4 rounded-2xl flex items-center gap-4 transition-all group shadow-sm hover:shadow-md active:scale-95 touch-manipulation">
             <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Eye className="w-6 h-6" /></div>
             <div className="text-left flex-1"><h3 className="font-bold text-gray-800">👀 看图练习</h3><p className="text-xs text-gray-500">看图片记单词，轻松入门</p></div>
           </button>
-          <button onClick={() => onSelectMode('blind')} className="w-full bg-white border-2 border-rose-100 hover:border-rose-400 hover:bg-rose-50 p-4 rounded-2xl flex items-center gap-4 transition-all group shadow-sm hover:shadow-md">
+          <button onClick={() => onSelectMode('blind')} className="w-full bg-white border-2 border-rose-100 hover:border-rose-400 hover:bg-rose-50 p-4 rounded-2xl flex items-center gap-4 transition-all group shadow-sm hover:shadow-md active:scale-95 touch-manipulation">
             <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Ear className="w-6 h-6" /></div>
             <div className="text-left flex-1"><h3 className="font-bold text-gray-800">👂 听音挑战</h3><p className="text-xs text-gray-500">不看图片，只听声音拼写</p></div>
             <div className="bg-rose-100 text-rose-600 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wide">进阶</div>
           </button>
+
+          {unit.hasChant && (
+            <button onClick={() => onSelectMode('chant')} className="w-full bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white p-4 rounded-2xl flex items-center gap-4 transition-all group shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 touch-manipulation">
+                <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center group-hover:animate-spin"><Music className="w-6 h-6" /></div>
+                <div className="text-left flex-1">
+                    <h3 className="font-bold text-white text-lg">🎵 律动小剧场</h3>
+                    <p className="text-xs text-white/80">跟着节奏，组装魔法句子！</p>
+                </div>
+            </button>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// --- 5. 主入口 (Dashboard) ---
+// --- 6. 设置弹窗组件 ---
+function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in-up">
+      <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 active:scale-95">
+          <X className="w-6 h-6" />
+        </button>
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-800 flex items-center justify-center gap-2">
+            <Settings className="w-6 h-6" /> 游戏设置
+          </h2>
+        </div>
+        
+        <div className="space-y-4">
+           <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+              <div className="flex items-center gap-3">
+                 <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center text-amber-500">
+                    <Lightbulb className="w-5 h-5" />
+                 </div>
+                 <div className="text-left">
+                    <h3 className="font-bold text-gray-700">拼写提示</h3>
+                    <p className="text-xs text-gray-400">遇到困难时显示灯泡按钮</p>
+                 </div>
+              </div>
+              <button 
+                 onClick={() => onUpdateSettings({ ...settings, enableHints: !settings.enableHints })}
+                 className={`w-14 h-8 rounded-full p-1 transition-colors duration-300 relative ${settings.enableHints ? 'bg-green-500' : 'bg-gray-300'}`}
+              >
+                 <div className={`w-6 h-6 bg-white rounded-full shadow-sm transition-transform duration-300 ${settings.enableHints ? 'translate-x-6' : 'translate-x-0'}`}></div>
+              </button>
+           </div>
+        </div>
+        
+        <div className="mt-8">
+           <button onClick={onClose} className="w-full bg-slate-800 text-white font-bold py-3 rounded-xl hover:bg-slate-700 transition active:scale-95">
+              完成
+           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- 7. 主入口 (Dashboard) ---
 
 export default function App() {
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [gameMode, setGameMode] = useState(null);
   const [mistakeCount, setMistakeCount] = useState(0);
   const [mistakeData, setMistakeData] = useState({});
-
-  // 大乱斗专用状态
+  const [totalScore, setTotalScore] = useState(0);
+  
+  const [settings, setSettings] = useState(getSettings());
+  const [showSettings, setShowSettings] = useState(false);
+  
   const [brawlState, setBrawlState] = useState(null);
 
   useEffect(() => {
@@ -705,6 +1233,15 @@ export default function App() {
     const interval = setInterval(checkMistakes, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    setTotalScore(getGlobalScore());
+  }, [gameMode]); 
+  
+  const handleUpdateSettings = (newSettings) => {
+    setSettings(newSettings);
+    saveSettings(newSettings);
+  };
 
   const handleUnitClick = (unit) => {
     setSelectedUnit(unit);
@@ -720,13 +1257,11 @@ export default function App() {
     setMistakeData(db);
     setGameMode('notebook');
   };
-
-  // --- 大乱斗逻辑 ---
+  
   const handleBrawlClick = () => {
     const saved = getBrawlProgress();
     if (saved) {
-      // 如果有存档，询问用户
-      if (window.confirm(`发现上次大乱斗进度（第 ${saved.currentIndex + 1} 关），是否继续？\n点击【确定】继续，点击【取消】重新开始`)) {
+      if(window.confirm(`发现上次大乱斗进度（第 ${saved.currentIndex + 1} 关），是否继续？\n点击【确定】继续，点击【取消】重新开始`)) {
         setBrawlState(saved);
         setGameMode('brawl');
       } else {
@@ -738,19 +1273,15 @@ export default function App() {
   };
 
   const startNewBrawl = () => {
-    // 1. 聚合所有单词
     const allWords = UNIT_DATA.flatMap(u => u.words);
-    // 2. 这里的打乱会在 GameScreen 内部通过 Memo 处理，或者我们可以预处理
-    // 为了支持存档的“顺序一致性”，我们需要在生成大乱斗时就确定顺序并保存
     const shuffled = shuffleArray(allWords);
-
+    
     const newState = {
       words: shuffled,
       currentIndex: 0,
       score: 0
     };
-
-    // 立即存档初始状态
+    
     saveBrawlProgress(newState);
     setBrawlState(newState);
     setGameMode('brawl');
@@ -762,31 +1293,42 @@ export default function App() {
     setBrawlState(null);
   };
 
-  // 渲染分发
-  if (gameMode === 'notebook') {
-    return <GameScreen words={mistakeData} mode="notebook" isMistakeMode={true} onBack={handleBack} />;
+  if (gameMode === 'chant') {
+      return <SentenceGameScreen onBack={handleBack} settings={settings} />;
   }
 
+  if (gameMode === 'notebook') {
+    return <GameScreen words={mistakeData} mode="notebook" isMistakeMode={true} onBack={handleBack} settings={settings} />;
+  }
+  
   if (gameMode === 'brawl' && brawlState) {
     return (
-      <GameScreen
-        words={brawlState.words}
-        mode="brawl"
-        onBack={handleBack}
+      <GameScreen 
+        words={brawlState.words} 
+        mode="brawl" 
+        onBack={handleBack} 
         initialIndex={brawlState.currentIndex}
         initialScore={brawlState.score}
-        preShuffled={true} // 告诉组件不要再乱序了，使用我们存好的顺序
+        preShuffled={true} 
         onProgressUpdate={saveBrawlProgress}
+        settings={settings}
       />
     );
   }
 
   if (selectedUnit && gameMode) {
-    return <GameScreen words={selectedUnit.words} mode={gameMode} onBack={handleBack} />;
+    return <GameScreen words={selectedUnit.words} mode={gameMode} onBack={handleBack} settings={settings} />;
   }
 
   return (
-    <div className="min-h-screen bg-sky-50 p-6 font-sans">
+    <div className="min-h-[100dvh] w-full overflow-x-hidden overscroll-none select-none bg-sky-50 p-6 pb-20 font-sans">
+      <SettingsModal 
+        isOpen={showSettings} 
+        onClose={() => setShowSettings(false)} 
+        settings={settings}
+        onUpdateSettings={handleUpdateSettings}
+      />
+
       {selectedUnit && !gameMode && (
         <ModeSelectionModal
           unit={selectedUnit}
@@ -795,7 +1337,23 @@ export default function App() {
         />
       )}
 
-      <header className="max-w-4xl mx-auto mb-8 relative">
+      <div className="fixed top-4 left-4 z-50 md:absolute">
+          <div className="flex items-center gap-2 bg-yellow-100 text-yellow-700 px-4 py-2 rounded-full font-bold shadow-sm border-2 border-yellow-200 cursor-help" title="这是你赢得的所有奖杯！">
+              <Trophy className="w-5 h-5 fill-yellow-500 text-yellow-600" />
+              <span>{totalScore}</span>
+          </div>
+      </div>
+      
+      <div className="fixed top-4 right-4 z-50 md:absolute">
+          <button 
+             onClick={() => setShowSettings(true)}
+             className="bg-white text-slate-500 p-2 rounded-full shadow-sm border hover:bg-slate-50 transition active:scale-95"
+          >
+              <Settings className="w-6 h-6" />
+          </button>
+      </div>
+
+      <header className="max-w-4xl mx-auto mb-8 relative pt-12 md:pt-0">
         <div className="text-center">
           <h1 className="text-3xl md:text-4xl font-extrabold text-sky-600 mb-2 flex items-center justify-center gap-3">
             <BookOpen className="w-10 h-10" />
@@ -804,7 +1362,7 @@ export default function App() {
           <p className="text-sky-800 text-lg">三年级上册 (Book 3A)</p>
         </div>
 
-        <div className="absolute top-0 right-0 hidden md:block">
+        <div className="absolute top-0 right-14 hidden md:block">
           <button
             onClick={startNotebookMode}
             className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold shadow-sm transition-all
@@ -820,11 +1378,10 @@ export default function App() {
         </div>
       </header>
 
-      {/* 移动端错题本入口 */}
       <div className="md:hidden mb-6 flex justify-center">
         <button
           onClick={startNotebookMode}
-          className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold shadow-sm transition-all border-2
+          className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold shadow-sm transition-all border-2 active:scale-95
                ${mistakeCount > 0 ? 'bg-white border-red-100 text-red-500' : 'bg-gray-50 border-gray-100 text-gray-400'}
              `}
         >
@@ -832,35 +1389,33 @@ export default function App() {
           复习错题 ({mistakeCount})
         </button>
       </div>
-
-      {/* 新增：大乱斗入口 (精心设计的排版) */}
+      
       <div className="max-w-4xl mx-auto mb-8 animate-fade-in-up">
-        <div
-          onClick={handleBrawlClick}
-          className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-3xl p-6 md:p-8 text-white shadow-xl shadow-indigo-200 cursor-pointer transform transition hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden group"
+        <div 
+           onClick={handleBrawlClick}
+           className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-3xl p-6 md:p-8 text-white shadow-xl shadow-indigo-200 cursor-pointer transform transition hover:scale-[1.02] hover:shadow-2xl relative overflow-hidden group active:scale-95"
         >
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-          <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500/20 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
-
-          <div className="flex items-center justify-between relative z-10">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded uppercase tracking-wider">New</span>
-                <span className="flex items-center gap-1 text-violet-200 text-xs font-medium"><Save className="w-3 h-3" /> 支持自动存档</span>
+           <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+           <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500/20 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
+           
+           <div className="flex items-center justify-between relative z-10">
+              <div className="flex-1">
+                 <div className="flex items-center gap-2 mb-2">
+                    <span className="bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded uppercase tracking-wider">New</span>
+                    <span className="flex items-center gap-1 text-violet-200 text-xs font-medium"><Save className="w-3 h-3"/> 支持自动存档</span>
+                 </div>
+                 <h2 className="text-2xl md:text-3xl font-extrabold mb-2 flex items-center gap-2">
+                    <Gamepad2 className="w-8 h-8 md:w-10 md:h-10 text-yellow-300" />
+                    全明星大乱斗
+                 </h2>
+                 <p className="text-indigo-100 opacity-90 max-w-lg text-sm md:text-base">
+                    挑战 Unit 1-6 所有单词！混合乱序排列，考验真实力。
+                 </p>
               </div>
-              <h2 className="text-2xl md:text-3xl font-extrabold mb-2 flex items-center gap-2">
-                <Gamepad2 className="w-8 h-8 md:w-10 md:h-10 text-yellow-300" />
-                全明星大乱斗
-              </h2>
-              <p className="text-indigo-100 opacity-90 max-w-lg">
-                挑战 Unit 1-6 所有单词！混合乱序排列，考验真实力。
-                太长做不完？别担心，系统会自动保存你的进度。
-              </p>
-            </div>
-            <div className="hidden md:flex items-center justify-center bg-white/20 w-16 h-16 rounded-full group-hover:bg-white/30 transition-colors backdrop-blur-sm">
-              <Play className="w-8 h-8 text-white fill-white" />
-            </div>
-          </div>
+              <div className="hidden md:flex items-center justify-center bg-white/20 w-16 h-16 rounded-full group-hover:bg-white/30 transition-colors backdrop-blur-sm">
+                 <Play className="w-8 h-8 text-white fill-white" />
+              </div>
+           </div>
         </div>
       </div>
 
@@ -871,7 +1426,7 @@ export default function App() {
             onClick={() => handleUnitClick(unit)}
             className={`
               group cursor-pointer rounded-3xl p-6 shadow-lg border-b-8 transition-all hover:-translate-y-2 hover:shadow-xl relative
-              bg-white ${unit.themeColor.split(' ')[1]}
+              bg-white ${unit.themeColor.split(' ')[1]} active:scale-95
             `}
           >
             <div className="flex items-start justify-between mb-4">
@@ -906,7 +1461,7 @@ export default function App() {
       </main>
 
       <footer className="max-w-4xl mx-auto mt-12 text-center text-sky-300 text-sm">
-        V6.0 - 专为聪明的小朋友设计
+        V6.4 - 专为聪明的小朋友设计
       </footer>
     </div>
   );
