@@ -4,7 +4,7 @@ import {
   BookOpen, Users, PawPrint, Apple, Palette, Hash, Eye, Ear,
   HelpCircle, Lightbulb, BookX, Heart, GraduationCap,
   Gamepad2, Save, RotateCcw, Play, Pause, Music, Mic, Edit,
-  Settings, Check, X
+  Settings, Check, X, Plus, Trash2, CheckSquare, Square, RefreshCw
 } from 'lucide-react';
 
 // --- 1. 数据准备区 ---
@@ -18,7 +18,7 @@ const getColor = (index) => {
   return colors[index % colors.length];
 };
 
-// 洗牌算法 (Fisher-Yates) - 保证真随机
+// 洗牌算法
 const shuffleArray = (array) => {
   const newArr = [...array];
   for (let i = newArr.length - 1; i > 0; i--) {
@@ -27,6 +27,11 @@ const shuffleArray = (array) => {
   }
   return newArr;
 };
+
+// 随机 Emoji 库 (用于新单词)
+const RANDOM_EMOJIS = ["🌟", "🎈", "🐶", "🐱", "🍦", "🌈", "🚀", "⚽", "🎮", "🎸", "📚", "✏️", "🍎", "🍔", "🚲", "⏰", "💡", "🎁", "🔑", "💎"];
+
+const getRandomEmoji = () => RANDOM_EMOJIS[Math.floor(Math.random() * RANDOM_EMOJIS.length)];
 
 // 律动小剧场数据 (Chants) - Unit 5 专属
 const CHANT_DATA = [
@@ -64,16 +69,21 @@ const CHANT_DATA = [
   }
 ];
 
-// 修复：icon 属性现在存储组件引用(Users)，而不是JSX元素(<Users/>)
-// 这能避免在模块加载阶段发生 React 未就绪的错误
-const UNIT_DATA = [
-  {
-    id: 1,
-    title: "Unit 1 身体部位",
-    subtitle: "Body Parts",
-    themeColor: "bg-rose-100 border-rose-300 text-rose-600",
-    icon: Users, 
-    words: [
+// --- 静态单元元数据 (不包含单词列表，单词列表移至 State) ---
+// 注意：Icon 组件不能存入 LocalStorage，所以我们把静态配置和动态数据分开
+const UNIT_METADATA = [
+  { id: 1, title: "Unit 1 身体部位", subtitle: "Body Parts", themeColor: "bg-rose-100 border-rose-300 text-rose-600", icon: Users },
+  { id: 2, title: "Unit 2 家庭关系", subtitle: "Family", themeColor: "bg-orange-100 border-orange-300 text-orange-600", icon: Home },
+  { id: 3, title: "Unit 3 认识动物", subtitle: "Animals", themeColor: "bg-green-100 border-green-300 text-green-600", icon: PawPrint },
+  { id: 4, title: "Unit 4 认识水果", subtitle: "Fruits", themeColor: "bg-yellow-100 border-yellow-300 text-yellow-700", icon: Apple },
+  { id: 5, title: "Unit 5 颜色与动作", subtitle: "Colors & Actions", themeColor: "bg-indigo-100 border-indigo-300 text-indigo-600", icon: Palette, hasChant: true },
+  { id: 6, title: "Unit 6 认识数字", subtitle: "Numbers", themeColor: "bg-sky-100 border-sky-300 text-sky-600", icon: Hash }
+];
+
+// --- 初始单词数据 (Default Data) ---
+// 包含了你要求的 Unit 5 新增单词
+const DEFAULT_WORDS_DATA = {
+  1: [
       { word: "name", cn: "名字", emoji: "📛", syllables: ["name"] },
       { word: "nice", cn: "友好的", emoji: "😊", syllables: ["nice"] },
       { word: "ear", cn: "耳朵", emoji: "👂", syllables: ["ear"] },
@@ -92,15 +102,8 @@ const UNIT_DATA = [
       { word: "toy", cn: "玩具", emoji: "🧸", syllables: ["toy"] },
       { word: "friend", cn: "朋友", emoji: "👭", syllables: ["friend"] },
       { word: "good", cn: "好的", emoji: "👍", syllables: ["good"] },
-    ]
-  },
-  {
-    id: 2,
-    title: "Unit 2 家庭关系",
-    subtitle: "Family",
-    themeColor: "bg-orange-100 border-orange-300 text-orange-600",
-    icon: Home,
-    words: [
+  ],
+  2: [
       { word: "mum", cn: "妈妈", emoji: "👩", syllables: ["mum"] },
       { word: "dad", cn: "爸爸", emoji: "👨", syllables: ["dad"] },
       { word: "mother", cn: "妈妈", emoji: "👩", syllables: ["moth", "er"] },
@@ -121,15 +124,8 @@ const UNIT_DATA = [
       { word: "grandpa", cn: "爷爷", emoji: "👴", syllables: ["grand", "pa"] },
       { word: "grandfather", cn: "外祖父", emoji: "👴", syllables: ["grand", "fa", "ther"] },
       { word: "grandmother", cn: "外祖母", emoji: "👵", syllables: ["grand", "moth", "er"] },
-    ]
-  },
-  {
-    id: 3,
-    title: "Unit 3 认识动物",
-    subtitle: "Animals",
-    themeColor: "bg-green-100 border-green-300 text-green-600",
-    icon: PawPrint,
-    words: [
+  ],
+  3: [
       { word: "like", cn: "喜欢", emoji: "❤️", syllables: ["like"] },
       { word: "dog", cn: "狗", emoji: "🐶", syllables: ["dog"] },
       { word: "pet", cn: "宠物", emoji: "🐈", syllables: ["pet"] },
@@ -151,15 +147,8 @@ const UNIT_DATA = [
       { word: "giraffe", cn: "长颈鹿", emoji: "🦒", syllables: ["gi", "raffe"] },
       { word: "tall", cn: "高的", emoji: "🗼", syllables: ["tall"] },
       { word: "fast", cn: "快的", emoji: "🐆", syllables: ["fast"] },
-    ]
-  },
-  {
-    id: 4,
-    title: "Unit 4 认识水果",
-    subtitle: "Fruits",
-    themeColor: "bg-yellow-100 border-yellow-300 text-yellow-700",
-    icon: Apple,
-    words: [
+  ],
+  4: [
       { word: "apple", cn: "苹果", emoji: "🍎", syllables: ["ap", "ple"] },
       { word: "banana", cn: "香蕉", emoji: "🍌", syllables: ["ba", "na", "na"] },
       { word: "farm", cn: "农场", emoji: "🚜", syllables: ["farm"] },
@@ -179,16 +168,8 @@ const UNIT_DATA = [
       { word: "give", cn: "给", emoji: "🎁", syllables: ["give"] },
       { word: "them", cn: "他们", emoji: "👥", syllables: ["them"] },
       { word: "us", cn: "我们", emoji: "🧑‍🤝‍🧑", syllables: ["us"] },
-    ]
-  },
-  {
-    id: 5,
-    title: "Unit 5 颜色与动作",
-    subtitle: "Colors & Actions",
-    themeColor: "bg-indigo-100 border-indigo-300 text-indigo-600",
-    icon: Palette,
-    hasChant: true, 
-    words: [
+  ],
+  5: [
       { word: "colour", cn: "颜色", emoji: "🎨", syllables: ["col", "our"] },
       { word: "orange", cn: "橙红色", emoji: "🟧", syllables: ["or", "ange"] },
       { word: "green", cn: "绿色", emoji: "🟩", syllables: ["green"] },
@@ -216,15 +197,11 @@ const UNIT_DATA = [
       { word: "up", cn: "上", emoji: "⬆️", syllables: ["up"] },
       { word: "stand", cn: "站", emoji: "🧍", syllables: ["stand"] },
       { word: "run", cn: "跑", emoji: "🏃", syllables: ["run"] },
-    ]
-  },
-  {
-    id: 6,
-    title: "Unit 6 认识数字",
-    subtitle: "Numbers",
-    themeColor: "bg-sky-100 border-sky-300 text-sky-600",
-    icon: Hash,
-    words: [
+      // 新增单词
+      { word: "number", cn: "数字", emoji: "🔢", syllables: ["num", "ber"] },
+      { word: "boys", cn: "男孩们", emoji: "👦", syllables: ["boys"] },
+  ],
+  6: [
       { word: "old", cn: "年纪", emoji: "👴", syllables: ["old"] },
       { word: "year", cn: "年", emoji: "📅", syllables: ["year"] },
       { word: "one", cn: "一", emoji: "1️⃣", syllables: ["one"] },
@@ -240,9 +217,8 @@ const UNIT_DATA = [
       { word: "cut", cn: "切", emoji: "✂️", syllables: ["cut"] },
       { word: "eat", cn: "吃", emoji: "🍽️", syllables: ["eat"] },
       { word: "cake", cn: "蛋糕", emoji: "🎂", syllables: ["cake"] },
-    ]
-  }
-];
+  ]
+};
 
 // --- 2. 存储管理 ---
 
@@ -250,6 +226,33 @@ const MISTAKE_KEY = 'spellingGame_mistakes_v4';
 const BRAWL_KEY = 'spellingGame_brawl_progress_v1';
 const SCORE_KEY = 'spellingGame_totalScore_v1';
 const SETTINGS_KEY = 'spellingGame_settings_v1';
+const WORDS_DATA_KEY = 'spellingGame_words_data_v2'; // 更新版本号
+
+// 获取单词数据（优先本地，否则默认）
+const getStoredWordsData = () => {
+  try {
+    const data = localStorage.getItem(WORDS_DATA_KEY);
+    if (data) {
+      return JSON.parse(data);
+    }
+  } catch (e) {
+    console.error("Error loading words data:", e);
+  }
+  // 如果是第一次加载，或者出错，返回默认数据
+  // 我们这里做一个数据结构的标准化，确保每个单词都有 isActive 属性
+  const normalizedDefault = {};
+  Object.keys(DEFAULT_WORDS_DATA).forEach(unitId => {
+    normalizedDefault[unitId] = DEFAULT_WORDS_DATA[unitId].map(w => ({
+      ...w,
+      isActive: w.isActive !== false // 默认为 true
+    }));
+  });
+  return normalizedDefault;
+};
+
+const saveWordsData = (data) => {
+  localStorage.setItem(WORDS_DATA_KEY, JSON.stringify(data));
+};
 
 const getGlobalScore = () => {
   try {
@@ -452,7 +455,6 @@ function SentenceGameScreen({ onBack, settings }) {
       osc.start();
       osc.stop(ctx.currentTime + 0.5);
 
-      // 安全的资源回收
       setTimeout(() => {
         try {
             if(ctx.state !== 'closed') ctx.close();
@@ -742,7 +744,7 @@ function SentenceGameScreen({ onBack, settings }) {
 
 function GameScreen({
   words,          
-  mode,           
+  mode,            
   onBack,
   isMistakeMode = false,
   initialIndex = 0,
@@ -751,11 +753,18 @@ function GameScreen({
   onProgressUpdate = null,
   settings 
 }) {
+  // 这里做一个过滤，确保只显示 isActive 为 true 的单词 (大乱斗和错题本除外，这俩模式逻辑独立)
+  const activeWords = useMemo(() => {
+    if (isMistakeMode || mode === 'brawl') return words;
+    return words.filter(w => w.isActive !== false);
+  }, [words, isMistakeMode, mode]);
+
   const workingWords = useMemo(() => {
-    if (preShuffled) return words;
-    if (Array.isArray(words)) return shuffleArray(words);
-    return shuffleArray(Object.values(words));
-  }, [words, preShuffled]);
+    if (activeWords.length === 0) return [];
+    if (preShuffled) return activeWords;
+    if (Array.isArray(activeWords)) return shuffleArray(activeWords);
+    return shuffleArray(Object.values(activeWords));
+  }, [activeWords, preShuffled]);
 
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [shuffledLetters, setShuffledLetters] = useState([]);
@@ -975,7 +984,18 @@ function GameScreen({
   const effectiveMode = mode === 'brawl' ? 'visual' : mode;
   const shouldShowVisuals = effectiveMode === 'visual' || effectiveMode === 'notebook' || showHint || isCompleted;
 
-  if (!currentWordObj) return <div className="text-center p-10">加载中...</div>;
+  if (!currentWordObj) {
+     if (activeWords.length === 0) {
+       return (
+         <div className="flex flex-col items-center justify-center min-h-[50vh] p-8 text-center">
+            <h2 className="text-2xl font-bold text-slate-700 mb-2">哎呀，没有单词了？</h2>
+            <p className="text-slate-500 mb-6">你好像把这个单元的单词都隐藏了。请去“管理单词”里勾选一些单词吧！</p>
+            <button onClick={onBack} className="bg-indigo-500 text-white px-6 py-2 rounded-full">返回</button>
+         </div>
+       )
+     }
+     return <div className="text-center p-10">加载中...</div>;
+  }
 
   // 修复：使用 React.createElement 动态渲染图标，避免加载时的JSX错误
   const IconComponent = currentWordObj.icon || HelpCircle; // 默认图标
@@ -1155,18 +1175,142 @@ function GameScreen({
   );
 }
 
-// --- 5. 模式选择弹窗 ---
+// --- 5. [新] 单词管理器弹窗 (CRUD & Selection) ---
 
-function ModeSelectionModal({ unit, onSelectMode, onClose }) {
+function WordManagerModal({ unit, words, onUpdateWords, onClose }) {
+  // 本地暂存状态，点击保存才提交
+  const [editingWords, setEditingWords] = useState(words);
+  const [newWord, setNewWord] = useState("");
+  const [newCn, setNewCn] = useState("");
+  const scrollRef = useRef(null);
+
+  const handleToggleActive = (index) => {
+    const updated = [...editingWords];
+    updated[index] = { ...updated[index], isActive: !updated[index].isActive };
+    setEditingWords(updated);
+  };
+
+  const handleDelete = (index) => {
+    if(window.confirm("确定要删除这个单词吗？")) {
+       const updated = editingWords.filter((_, i) => i !== index);
+       setEditingWords(updated);
+    }
+  };
+
+  const handleAddWord = () => {
+    if (!newWord.trim() || !newCn.trim()) {
+      alert("请输入英文单词和中文意思哦！");
+      return;
+    }
+    const newItem = {
+      word: newWord.trim(),
+      cn: newCn.trim(),
+      emoji: getRandomEmoji(), // 随机图标
+      isActive: true,
+      syllables: [newWord.trim()] // 简单的音节处理
+    };
+    
+    setEditingWords([...editingWords, newItem]);
+    setNewWord("");
+    setNewCn("");
+    
+    // 滚动到底部
+    setTimeout(() => {
+        if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }, 100);
+  };
+  
+  const handleSave = () => {
+      onUpdateWords(unit.id, editingWords);
+      onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-fade-in-up">
+       <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh] overflow-hidden relative">
+          <div className={`p-4 ${unit.themeColor.split(' ')[0]} flex items-center justify-between`}>
+             <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">
+                <Edit className="w-5 h-5" /> 管理单词: {unit.subtitle}
+             </h2>
+             <button onClick={onClose} className="bg-white/50 hover:bg-white p-2 rounded-full transition"><X className="w-5 h-5"/></button>
+          </div>
+          
+          <div className="p-2 bg-yellow-50 text-yellow-700 text-xs text-center border-b border-yellow-100">
+             勾选要练习的单词，或者添加你自己的新单词！
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-2" ref={scrollRef}>
+             {editingWords.map((item, index) => (
+               <div key={index} className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${item.isActive ? 'bg-white border-indigo-100' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
+                  <button onClick={() => handleToggleActive(index)} className="focus:outline-none">
+                     {item.isActive ? <CheckSquare className="w-6 h-6 text-indigo-500" /> : <Square className="w-6 h-6 text-gray-400" />}
+                  </button>
+                  <div className="flex-1">
+                     <div className="flex items-center gap-2">
+                        <span className="text-xl">{item.emoji}</span>
+                        <span className="font-bold text-gray-800">{item.word}</span>
+                     </div>
+                     <div className="text-xs text-gray-500">{item.cn}</div>
+                  </div>
+                  <button onClick={() => handleDelete(index)} className="p-2 text-gray-300 hover:text-red-500 transition hover:bg-red-50 rounded-full">
+                     <Trash2 className="w-5 h-5" />
+                  </button>
+               </div>
+             ))}
+             
+             {editingWords.length === 0 && (
+                <div className="text-center py-10 text-gray-400">
+                   还没有单词哦，快来添加一个吧！
+                </div>
+             )}
+          </div>
+
+          <div className="p-4 bg-gray-50 border-t border-gray-200">
+             <div className="flex gap-2 mb-4">
+                <input 
+                  value={newWord}
+                  onChange={(e) => setNewWord(e.target.value)}
+                  placeholder="英文 (如: cat)" 
+                  className="flex-1 p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+                <input 
+                  value={newCn}
+                  onChange={(e) => setNewCn(e.target.value)}
+                  placeholder="中文 (如: 猫)" 
+                  className="flex-1 p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+                <button onClick={handleAddWord} className="bg-green-500 hover:bg-green-600 text-white p-3 rounded-xl transition shadow-md active:scale-95">
+                   <Plus className="w-6 h-6" />
+                </button>
+             </div>
+             <button onClick={handleSave} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg transition active:scale-95 flex items-center justify-center gap-2">
+                <Save className="w-5 h-5" /> 保存修改
+             </button>
+          </div>
+       </div>
+    </div>
+  );
+}
+
+// --- 6. 模式选择弹窗 (更新：加入管理入口) ---
+
+function ModeSelectionModal({ unit, onSelectMode, onOpenManager, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in-up">
       <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl relative overflow-hidden">
         <div className={`absolute top-0 left-0 w-full h-24 bg-gradient-to-br ${unit.themeColor.split(' ')[0].replace('bg-', 'from-').replace('100', '200')} to-white opacity-50`}></div>
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 active:scale-95"><ArrowLeft className="w-6 h-6" /></button>
-        <div className="relative text-center mb-8 mt-4">
+        <div className="relative text-center mb-6 mt-4">
           <h2 className="text-2xl font-bold text-gray-800 mb-2">选择挑战模式</h2>
           <p className="text-gray-500 text-sm">当前单元: {unit.subtitle}</p>
         </div>
+
+        <div className="relative z-10 mb-6">
+           <button onClick={onOpenManager} className="mx-auto flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-full text-sm font-bold text-gray-600 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition active:scale-95">
+              <Settings className="w-4 h-4" /> 管理本单元单词
+           </button>
+        </div>
+
         <div className="space-y-4">
           <button onClick={() => onSelectMode('visual')} className="w-full bg-white border-2 border-indigo-100 hover:border-indigo-400 hover:bg-indigo-50 p-4 rounded-2xl flex items-center gap-4 transition-all group shadow-sm hover:shadow-md active:scale-95 touch-manipulation">
             <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform"><Eye className="w-6 h-6" /></div>
@@ -1193,8 +1337,8 @@ function ModeSelectionModal({ unit, onSelectMode, onClose }) {
   );
 }
 
-// --- 6. 设置弹窗组件 ---
-function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }) {
+// --- 7. 设置弹窗组件 ---
+function SettingsModal({ isOpen, onClose, settings, onUpdateSettings, onResetData }) {
   if (!isOpen) return null;
 
   return (
@@ -1227,6 +1371,16 @@ function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }) {
                  <div className={`w-6 h-6 bg-white rounded-full shadow-sm transition-transform duration-300 ${settings.enableHints ? 'translate-x-6' : 'translate-x-0'}`}></div>
               </button>
            </div>
+           
+           <div className="p-4 bg-red-50 rounded-xl border border-red-100">
+                <h3 className="font-bold text-red-700 mb-2 text-sm">危险操作</h3>
+                <button 
+                    onClick={onResetData}
+                    className="w-full flex items-center justify-center gap-2 bg-white text-red-500 border border-red-200 py-2 rounded-lg text-sm hover:bg-red-500 hover:text-white transition"
+                >
+                    <RefreshCw className="w-4 h-4"/> 重置所有单词数据
+                </button>
+           </div>
         </div>
         
         <div className="mt-8">
@@ -1239,11 +1393,16 @@ function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }) {
   );
 }
 
-// --- 7. 主入口 (Dashboard) ---
+// --- 8. 主入口 (Dashboard) ---
 
 export default function App() {
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [gameMode, setGameMode] = useState(null);
+  
+  // 核心状态：所有单元的单词数据 (从 localStorage 或 默认 加载)
+  const [allWordsData, setAllWordsData] = useState({});
+  const [showManager, setShowManager] = useState(false); // 是否显示单词管理器
+  
   const [mistakeCount, setMistakeCount] = useState(0);
   const [mistakeData, setMistakeData] = useState({});
   const [totalScore, setTotalScore] = useState(0);
@@ -1252,6 +1411,12 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   
   const [brawlState, setBrawlState] = useState(null);
+
+  // 初始化加载数据
+  useEffect(() => {
+    const loadedData = getStoredWordsData();
+    setAllWordsData(loadedData);
+  }, []);
 
   useEffect(() => {
     const checkMistakes = () => {
@@ -1270,6 +1435,21 @@ export default function App() {
   const handleUpdateSettings = (newSettings) => {
     setSettings(newSettings);
     saveSettings(newSettings);
+  };
+  
+  const handleResetData = () => {
+      if(window.confirm("这将重置所有单元的单词到初始状态，您添加的单词将丢失！确定吗？")) {
+          localStorage.removeItem(WORDS_DATA_KEY);
+          // 重新加载页面或强制刷新状态
+          window.location.reload();
+      }
+  }
+
+  // 更新单词数据 (CRUD)
+  const handleUpdateUnitWords = (unitId, newWordsList) => {
+      const newData = { ...allWordsData, [unitId]: newWordsList };
+      setAllWordsData(newData);
+      saveWordsData(newData);
   };
 
   const handleUnitClick = (unit) => {
@@ -1302,7 +1482,14 @@ export default function App() {
   };
 
   const startNewBrawl = () => {
-    const allWords = UNIT_DATA.flatMap(u => u.words);
+    // 大乱斗收集所有单元的所有 ACTIVE 单词
+    const allWords = Object.values(allWordsData).flat().filter(w => w.isActive !== false);
+    
+    if (allWords.length === 0) {
+        alert("没有可用的单词进行大乱斗，请检查单词管理设置。");
+        return;
+    }
+
     const shuffled = shuffleArray(allWords);
     
     const newState = {
@@ -1320,6 +1507,7 @@ export default function App() {
     setSelectedUnit(null);
     setGameMode(null);
     setBrawlState(null);
+    setShowManager(false);
   };
 
   if (gameMode === 'chant') {
@@ -1346,7 +1534,11 @@ export default function App() {
   }
 
   if (selectedUnit && gameMode) {
-    return <GameScreen words={selectedUnit.words} mode={gameMode} onBack={handleBack} settings={settings} />;
+    // 获取当前单元的动态单词列表
+    const currentUnitWords = allWordsData[selectedUnit.id] || [];
+    // 注入图标（可选，如果需要的话，但主要逻辑是取 allWordsData）
+    // GameScreen 内部会负责过滤 !isActive 的单词
+    return <GameScreen words={currentUnitWords} mode={gameMode} onBack={handleBack} settings={settings} />;
   }
 
   return (
@@ -1356,12 +1548,23 @@ export default function App() {
         onClose={() => setShowSettings(false)} 
         settings={settings}
         onUpdateSettings={handleUpdateSettings}
+        onResetData={handleResetData}
       />
+      
+      {showManager && selectedUnit && (
+          <WordManagerModal 
+             unit={selectedUnit}
+             words={allWordsData[selectedUnit.id] || []}
+             onUpdateWords={handleUpdateUnitWords}
+             onClose={() => setShowManager(false)}
+          />
+      )}
 
-      {selectedUnit && !gameMode && (
+      {selectedUnit && !gameMode && !showManager && (
         <ModeSelectionModal
           unit={selectedUnit}
           onSelectMode={setGameMode}
+          onOpenManager={() => setShowManager(true)}
           onClose={() => setSelectedUnit(null)}
         />
       )}
@@ -1395,7 +1598,7 @@ export default function App() {
           <button
             onClick={startNotebookMode}
             className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold shadow-sm transition-all
-               ${mistakeCount > 0 ? 'bg-white text-red-500 hover:shadow-md hover:scale-105' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}
+              ${mistakeCount > 0 ? 'bg-white text-red-500 hover:shadow-md hover:scale-105' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}
              `}
           >
             <BookX className="w-5 h-5" />
@@ -1411,7 +1614,7 @@ export default function App() {
         <button
           onClick={startNotebookMode}
           className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold shadow-sm transition-all border-2 active:scale-95
-               ${mistakeCount > 0 ? 'bg-white border-red-100 text-red-500' : 'bg-gray-50 border-gray-100 text-gray-400'}
+              ${mistakeCount > 0 ? 'bg-white border-red-100 text-red-500' : 'bg-gray-50 border-gray-100 text-gray-400'}
              `}
         >
           <BookX className="w-5 h-5" />
@@ -1438,7 +1641,7 @@ export default function App() {
                     全明星大乱斗
                  </h2>
                  <p className="text-indigo-100 opacity-90 max-w-lg text-sm md:text-base">
-                    挑战 Unit 1-6 所有单词！混合乱序排列，考验真实力。
+                    挑战所有勾选的单词！混合乱序排列，考验真实力。
                  </p>
               </div>
               <div className="hidden md:flex items-center justify-center bg-white/20 w-16 h-16 rounded-full group-hover:bg-white/30 transition-colors backdrop-blur-sm">
@@ -1449,7 +1652,7 @@ export default function App() {
       </div>
 
       <main className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {UNIT_DATA.map((unit) => (
+        {UNIT_METADATA.map((unit) => (
           <div
             key={unit.id}
             onClick={() => handleUnitClick(unit)}
@@ -1464,7 +1667,6 @@ export default function App() {
                 ${unit.themeColor.split(' ')[0]} 
                 ${unit.themeColor.split(' ')[2]}
               `}>
-                {/* 修复：这里直接把组件作为React元素渲染，而不是cloneElement */}
                 <unit.icon className="w-7 h-7" />
               </div>
               <span className="text-xs font-bold bg-white/50 text-gray-600 px-2 py-1 rounded-lg">
@@ -1480,7 +1682,10 @@ export default function App() {
             <div className="flex items-center justify-between mt-6 pt-4 border-t border-black/5">
               <div className="flex gap-1">
                 <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                <span className="text-xs font-bold text-gray-400">准备出发!</span>
+                <span className="text-xs font-bold text-gray-400">
+                    {/* 显示该单元激活的单词数量 */}
+                    {(allWordsData[unit.id] || []).filter(w => w.isActive !== false).length} 词
+                </span>
               </div>
               <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-gray-300 group-hover:text-current group-hover:bg-gray-50 transition-colors">
                 <ArrowRight className="w-5 h-5" />
@@ -1491,7 +1696,7 @@ export default function App() {
       </main>
 
       <footer className="max-w-4xl mx-auto mt-12 text-center text-sky-300 text-sm">
-        V6.5 - 专为聪明的小朋友设计
+        V6.6 - 支持自定义单词 & 内容更新
       </footer>
     </div>
   );
