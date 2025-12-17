@@ -11,7 +11,7 @@ import {
 
 // --- 1. 全局配置与工具 ---
 
-const STORAGE_VERSION = 'v8.6'; // 升级版本号
+const STORAGE_VERSION = 'v8.7'; // 升级版本号，重置数据结构以修复潜在的积分Bug
 const KEYS = {
   WORDS: `spelling_words_${STORAGE_VERSION}`,
   MISTAKES: `spelling_mistakes_${STORAGE_VERSION}`,
@@ -47,27 +47,36 @@ const getRandomEmoji = () => RANDOM_EMOJIS[Math.floor(Math.random() * RANDOM_EMO
 
 // --- 2. 核心功能引擎 ---
 
-// 爆炸音效生成器
-const playExplosionSound = () => {
+// [优化] 愉悦的解锁音效 (Success Chime)
+const playAchievementSound = () => {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return;
     const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
     
-    // 模拟爆炸/烟花的声音：低频锯齿波快速衰减
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(150, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.5);
-    
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.5);
-    
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 1.5);
+    // 播放一个大三和弦 (C Major: C5, E5, G5)
+    const notes = [523.25, 659.25, 783.99]; 
+    const now = ctx.currentTime;
+
+    notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        // 使用正弦波，听起来更圆润清脆
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + i * 0.1); // 稍微错开时间，形成琶音效果
+        
+        // 音量包络：快速冲击，缓慢衰减
+        gain.gain.setValueAtTime(0, now + i * 0.1);
+        gain.gain.linearRampToValueAtTime(0.3, now + i * 0.1 + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.1 + 1.5);
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        
+        osc.start(now + i * 0.1);
+        osc.stop(now + i * 0.1 + 1.5);
+    });
   } catch (e) {}
 };
 
@@ -334,11 +343,17 @@ const getStoredWordsData = () => {
 
 const saveWordsData = (data) => localStorage.setItem(WORDS_DATA_KEY, JSON.stringify(data));
 
+// [Bug Fix] 增强的积分读取逻辑，防止 NaN
 const getGlobalScore = () => {
-  try { return parseInt(localStorage.getItem(SCORE_KEY) || '0', 10); } catch (e) { return 0; }
+  try { 
+      const val = parseInt(localStorage.getItem(SCORE_KEY) || '0', 10);
+      return isNaN(val) ? 0 : val;
+  } catch (e) { return 0; }
 };
+
 const updateGlobalScore = (delta) => {
-  const newScore = getGlobalScore() + delta;
+  const current = getGlobalScore();
+  const newScore = current + delta;
   localStorage.setItem(SCORE_KEY, newScore.toString());
   return newScore;
 };
@@ -398,12 +413,12 @@ function ToastNotification({ message, isVisible, onClose }) {
   if (!isVisible) return null;
 
   return (
-    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] animate-fade-in-up">
+    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] animate-fade-in-up w-max max-w-[90vw]">
        <div className="bg-slate-800/90 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md border border-white/20">
           <div className="bg-yellow-400 rounded-full p-1 animate-spin-slow">
              <Trophy className="w-5 h-5 text-yellow-900" />
           </div>
-          <span className="font-bold">{message}</span>
+          <span className="font-bold text-sm md:text-base">{message}</span>
        </div>
     </div>
   );
@@ -429,7 +444,7 @@ function TrophyWallModal({ isOpen, onClose, unlockedIds }) {
         });
     }
     setParticles(prev => [...prev, ...newParticles]);
-    playExplosionSound(); // 触发音效
+    playAchievementSound(); // 触发优美的音效
   };
 
   useEffect(() => {
@@ -518,7 +533,6 @@ function TrophyWallModal({ isOpen, onClose, unlockedIds }) {
 
 // --- 7. 律动小剧场 ---
 function SentenceGameScreen({ onBack, settings, onUpdateStats }) {
-  // ... (省略部分重复逻辑，保持核心功能不变)
   const [currentIndex, setCurrentIndex] = useState(0);
   const [gamePhase, setGamePhase] = useState('sentence'); 
   const [placedWords, setPlacedWords] = useState([]);
@@ -719,7 +733,8 @@ function GameScreen({
 
   const initWord = (wordObj) => {
     const phrase = wordObj.word;
-    const letterObjs = phrase.replace(/\s/g, '').split('').map((char, i) => ({ id: `${char}-${i}-${Math.random()}`, char: char, isUsed: false }));
+    const lettersOnly = phrase.replace(/\s/g, '').split('');
+    const letterObjs = lettersOnly.map((char, i) => ({ id: `${char}-${i}-${Math.random()}`, char: char, isUsed: false }));
     setShuffledLetters(shuffleArray(letterObjs));
     setPlacedLetters(phrase.split('').map((char, i) => char === ' ' ? { char: ' ', isSpace: true, id: `space-${i}` } : null));
     setIsCompleted(false); setShowCelebration(false); setShowHint(false); setGraduatedAnimation(false);
@@ -783,6 +798,7 @@ function GameScreen({
     if (userPhrase === currentWordObj.word) {
       setIsCompleted(true);
       playWordAudio(currentWordObj.word);
+      playAchievementSound(); // 单词拼写成功播放音效
       if (isMistakeMode) {
          const res = updateMistakeProgress(currentWordObj.word, true);
          if(res === 'graduated') setGraduatedAnimation(true);
@@ -853,11 +869,11 @@ function GameScreen({
                 </div>
 
                 <div className={`flex flex-wrap justify-center gap-2 min-h-[4rem] ${shake ? 'animate-shake' : ''}`}>
-                   {placedLetters.map((l, i) => l?.isSpace ? <div key={i} className="w-4"/> : <div key={i} onClick={() => handleSlotClick(i)} className={`w-12 h-14 flex items-center justify-center text-2xl font-bold rounded-xl border-b-4 cursor-pointer ${l ? 'bg-white border-blue-200 text-blue-600' : 'bg-slate-100 border-slate-200'} ${isCompleted && l ? 'bg-green-100 border-green-400 text-green-600' : ''}`}>{l?.char}</div>)}
+                   {placedLetters.map((l, i) => l?.isSpace ? <div key={i} className="w-4"/> : <div key={i} onClick={() => handleSlotClick(i)} className={`w-12 h-16 flex items-center justify-center text-2xl font-bold rounded-xl border-b-4 cursor-pointer ${l ? 'bg-white border-blue-200 text-blue-600' : 'bg-slate-100 border-slate-200'} ${isCompleted && l ? 'bg-green-100 border-green-400 text-green-600' : ''}`}>{l?.char}</div>)}
                 </div>
 
                 <div className="flex flex-wrap justify-center gap-3 mt-8 min-h-[4rem]">
-                   {!isCompleted ? shuffledLetters.map(l => (<button key={l.id} onClick={() => handleLetterClick(l)} disabled={l.isUsed} className={`w-12 h-12 rounded-xl font-bold text-xl ${l.isUsed ? 'opacity-0' : 'bg-yellow-400 text-yellow-900 shadow-md active:scale-95'}`}>{l.char}</button>)) : !graduatedAnimation && <button onClick={nextLevel} className="bg-green-500 text-white px-8 py-3 rounded-full font-bold shadow-lg animate-bounce">下一关 ➡️</button>}
+                   {!isCompleted ? shuffledLetters.map(l => (<button key={l.id} onClick={() => handleLetterClick(l)} disabled={l.isUsed} className={`w-14 h-14 sm:w-12 sm:h-12 rounded-xl font-bold text-xl touch-manipulation ${l.isUsed ? 'opacity-0' : 'bg-yellow-400 text-yellow-900 shadow-md active:scale-95'}`}>{l.char}</button>)) : !graduatedAnimation && <button onClick={nextLevel} className="bg-green-500 text-white px-8 py-3 rounded-full font-bold shadow-lg animate-bounce">下一关 ➡️</button>}
                 </div>
              </div>
           </div>
@@ -957,6 +973,10 @@ export default function App() {
     }
     const storedStats = localStorage.getItem(KEYS.STATS);
     if(storedStats) setStats(JSON.parse(storedStats));
+    else {
+        // [BugFix] 初始化时也同步一次 Score
+        setStats(prev => ({ ...prev, totalScore: getGlobalScore() }));
+    }
     const storedAch = localStorage.getItem(KEYS.ACHIEVEMENTS);
     if(storedAch) setUnlockedAchievements(JSON.parse(storedAch));
     const storedSettings = localStorage.getItem(KEYS.SETTINGS);
