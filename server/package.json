@@ -1,0 +1,16 @@
+{
+    "name": "word-game-api",
+    "version": "1.0.0",
+    "description": "Backend API for English Word Game discussion forum",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js",
+        "dev": "node --watch index.js"
+    },
+    "dependencies": {
+        "better-sqlite3": "^11.6.0",
+        "cors": "^2.8.5",
+        "express": "^4.21.2",
+        "uuid": "^11.0.3"
+    }
+}
