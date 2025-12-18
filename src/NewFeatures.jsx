@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 
 // 后端 API 地址
-const API_BASE_URL = 'http://82.157.9.232';
+const API_BASE_URL = 'https://api.ludohub.me';
 
 // 用户档案选项
 export const AVATAR_OPTIONS = ['🐱', '🐶', '🐼', '🦊', '🐰'];
